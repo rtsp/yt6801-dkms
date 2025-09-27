@@ -1,29 +1,36 @@
-
-/*++
-
-Copyright (c) 2021 Motorcomm Corporation. 
-Confidential and Proprietary. All rights reserved.
-
-This is Motorcomm Corporation NIC driver relevant files. Please don't copy, modify,
-distribute without commercial permission.
-
---*/
+// SPDX-License-Identifier: GPL-2.0+
+/* Copyright (c) 2021 Motor-comm Corporation. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ */
 
 #include "fuxi-gmac.h"
 #include "fuxi-gmac-reg.h"
 #include "fuxi-efuse.h"
 
-#ifdef UEFI
-#include "nic_sw.h"
+#ifdef FXGMAC_USE_ADAPTER_HANDLE
+#include "fuxi-mp.h"
 #endif
 
-bool fxgmac_read_patch_from_efuse_per_index(struct fxgmac_pdata* pdata, u8 index, u32* offset, u32* value) /* read patch per index. */
+bool fxgmac_read_patch_from_efuse_per_index(struct fxgmac_pdata* pdata, u8 index, u32 __far* offset, u32 __far* value) /* read patch per index. */
 {
     unsigned int wait, i;
     u32 regval = 0;
     bool succeed = false;
 
-    if (index >= FUXI_EFUSE_MAX_ENTRY) {
+    if (index >= FXGMAC_EFUSE_MAX_ENTRY) {
         FXGMAC_PR("Reading efuse out of range, index %d\n", index);
         return false;
     }
@@ -89,6 +96,89 @@ bool fxgmac_read_patch_from_efuse_per_index(struct fxgmac_pdata* pdata, u8 index
     return succeed;
 }
 
+bool fxgmac_read_mac_subsys_from_efuse(struct fxgmac_pdata* pdata, u8* mac_addr, u32* subsys, u32* revid)
+{
+    u32 offset = 0, value = 0;
+    u32 machr = 0, maclr = 0;
+    bool succeed = true;
+    u8 index = 0;
+
+    for (index = 0; ; index++) {
+        if (!fxgmac_read_patch_from_efuse_per_index(pdata, index, &offset, &value)) {
+            succeed = false;
+            break; // reach the last item.
+        }
+        if (0x00 == offset) {
+            break; // reach the blank.
+        }
+        if (MACA0LR_FROM_EFUSE == offset) {
+            maclr = value;
+        }
+        if (MACA0HR_FROM_EFUSE == offset) {
+            machr = value;
+        }
+
+        if ((0x08 == offset) && revid) {
+            *revid = value;
+        }
+        if ((0x2C == offset) && subsys) {
+            *subsys = value;
+        }
+    }
+    if (mac_addr) {
+        mac_addr[5] = (u8)(maclr & 0xFF);
+        mac_addr[4] = (u8)((maclr >> 8) & 0xFF);
+        mac_addr[3] = (u8)((maclr >> 16) & 0xFF);
+        mac_addr[2] = (u8)((maclr >> 24) & 0xFF);
+        mac_addr[1] = (u8)(machr & 0xFF);
+        mac_addr[0] = (u8)((machr >> 8) & 0xFF);
+    }
+
+    return succeed;
+}
+
+bool fxgmac_efuse_read_data(struct fxgmac_pdata* pdata, u32 offset, u32 __far* value)
+{
+    bool succeed = false;
+    unsigned int wait;
+    u32 reg_val = 0;
+
+    //if (reg >= EFUSE_REGION_A_B_LENGTH) {
+    //    FXGMAC_PR("Read addr out of range %d", reg);
+    //    return succeed;
+    //}
+
+    if (value) {
+        *value = 0;
+    }
+
+    reg_val = FXGMAC_SET_REG_BITS(reg_val, EFUSE_OP_ADDR_POS, EFUSE_OP_ADDR_LEN, offset);
+    reg_val = FXGMAC_SET_REG_BITS(reg_val, EFUSE_OP_START_POS, EFUSE_OP_START_LEN, 1);
+    reg_val = FXGMAC_SET_REG_BITS(reg_val, EFUSE_OP_MODE_POS, EFUSE_OP_MODE_LEN, EFUSE_OP_MODE_ROW_READ);
+    writereg(pdata->pAdapter, reg_val, pdata->base_mem + EFUSE_OP_CTRL_0);
+    wait = 1000;
+    while (wait--) {
+        usleep_range_ex(pdata->pAdapter, 20, 50);
+        reg_val = readreg(pdata->pAdapter, pdata->base_mem + EFUSE_OP_CTRL_1);
+        if (FXGMAC_GET_REG_BITS(reg_val, EFUSE_OP_DONE_POS, EFUSE_OP_DONE_LEN)) {
+            succeed = true;
+            break;
+        }
+    }
+
+    if (succeed) {
+        if (value) {
+            *value = FXGMAC_GET_REG_BITS(reg_val, EFUSE_OP_RD_DATA_POS, EFUSE_OP_RD_DATA_LEN);
+        }
+    }
+    else {
+        FXGMAC_PR("Fail to reading efuse Byte%d\n", offset);
+    }
+
+    return succeed;
+}
+
+#ifndef COMMENT_UNUSED_CODE_TO_REDUCE_SIZE
 bool fxgmac_read_patch_from_efuse(struct fxgmac_pdata* pdata, u32 offset, u32* value) /* read patch per index. */
 {
     u32 reg_offset, reg_val;
@@ -101,7 +191,7 @@ bool fxgmac_read_patch_from_efuse(struct fxgmac_pdata* pdata, u32 offset, u32* v
         return false;
     }
 
-    for (index = 0; index < FUXI_EFUSE_MAX_ENTRY; index++) {
+    for (index = 0; index < FXGMAC_EFUSE_MAX_ENTRY; index++) {
         if (!fxgmac_read_patch_from_efuse_per_index(pdata, index, &reg_offset, &reg_val)) {
             succeed = false;
             break;
@@ -125,7 +215,7 @@ bool fxgmac_write_patch_to_efuse_per_index(struct fxgmac_pdata* pdata, u8 index,
     u32             reg_val;
     bool            succeed = false;
     u32             cur_reg, cur_val;
-    u8              max_index = FUXI_EFUSE_MAX_ENTRY;
+    u8              max_index = FXGMAC_EFUSE_MAX_ENTRY;
 
     if(offset >> 16){
         FXGMAC_PR("Reading efuse out of range, reg %d. reg must be 2bytes.\n", index);
@@ -134,7 +224,7 @@ bool fxgmac_write_patch_to_efuse_per_index(struct fxgmac_pdata* pdata, u8 index,
 
     fxgmac_efuse_read_data(pdata, EFUSE_LED_ADDR, &reg_val);
     if (EFUSE_LED_COMMON_SOLUTION == reg_val) {
-        max_index = FUXI_EFUSE_MAX_ENTRY_UNDER_LED_COMMON;
+        max_index = FXGMAC_EFUSE_MAX_ENTRY_UNDER_LED_COMMON;
     }
 
     if (index >= max_index) {
@@ -287,57 +377,20 @@ bool fxgmac_write_patch_to_efuse(struct fxgmac_pdata* pdata, u32 offset, u32 val
     return succeed;
 }
 
-bool fxgmac_read_mac_subsys_from_efuse(struct fxgmac_pdata* pdata, u8* mac_addr, u32* subsys, u32* revid)
-{
-    u32 offset = 0, value = 0;
-    u32 machr = 0, maclr = 0;
-    bool succeed = true;
-    u8 index = 0;
-
-    for (index = 0; ; index++) {
-        if (!fxgmac_read_patch_from_efuse_per_index(pdata, index, &offset, &value)) {
-            succeed = false;
-            break; // reach the last item.
-        }
-        if (0x00 == offset) {
-            break; // reach the blank.
-        }
-        if (MACA0LR_FROM_EFUSE == offset) {
-            maclr = value;
-        }
-        if (MACA0HR_FROM_EFUSE == offset) {
-            machr = value;
-        }
-
-        if ((0x08 == offset) && revid) {
-            *revid = value;
-        }
-        if ((0x2C == offset) && subsys) {
-            *subsys = value;
-        }
-    }
-    if (mac_addr) {
-        mac_addr[5] = (u8)(maclr & 0xFF);
-        mac_addr[4] = (u8)((maclr >> 8) & 0xFF);
-        mac_addr[3] = (u8)((maclr >> 16) & 0xFF);
-        mac_addr[2] = (u8)((maclr >> 24) & 0xFF);
-        mac_addr[1] = (u8)(machr & 0xFF);
-        mac_addr[0] = (u8)((machr >> 8) & 0xFF);
-    }
-
-    return succeed;
-}
-
 bool fxgmac_write_mac_subsys_to_efuse(struct fxgmac_pdata* pdata, u8* mac_addr, u32* subsys, u32* revid)
 {
-    u32 machr = 0, maclr = 0,pcie_cfg_ctrl= PCIE_CFG_CTRL_DEFAULT_VAL;
+#ifdef DBG
+    u32 machr = 0, maclr = 0;
+#endif
+    u32 pcie_cfg_ctrl= PCIE_CFG_CTRL_DEFAULT_VAL;
     bool succeed = true;
     if (mac_addr) {
+#ifdef DBG
         machr = readreg(pdata->pAdapter, pdata->base_mem + MACA0HR_FROM_EFUSE);
         maclr = readreg(pdata->pAdapter, pdata->base_mem + MACA0LR_FROM_EFUSE);
         DPRINTK("Current mac address from efuse is %02x-%02x-%02x-%02x-%02x-%02x.\n", 
             (machr >> 8) & 0xFF, machr & 0xFF, (maclr >> 24) & 0xFF, (maclr >> 16) & 0xFF, (maclr >> 8) & 0xFF, maclr & 0xFF);
-
+#endif
         if(!fxgmac_write_patch_to_efuse(pdata, MACA0HR_FROM_EFUSE, (((u32)mac_addr[0]) << 8) | mac_addr[1])){
             succeed = false;
         }
@@ -369,15 +422,18 @@ bool fxgmac_write_mac_subsys_to_efuse(struct fxgmac_pdata* pdata, u8* mac_addr, 
 
 bool fxgmac_write_mac_addr_to_efuse(struct fxgmac_pdata* pdata, u8* mac_addr)
 {
+#ifdef DBG
     u32 machr = 0, maclr = 0;
+#endif
     bool succeed = true;
 
     if (mac_addr) {
+#ifdef DBG
         machr = readreg(pdata->pAdapter, pdata->base_mem + MACA0HR_FROM_EFUSE);
         maclr = readreg(pdata->pAdapter, pdata->base_mem + MACA0LR_FROM_EFUSE);
         DPRINTK("Current mac address from efuse is %02x-%02x-%02x-%02x-%02x-%02x.\n", 
             (machr >> 8) & 0xFF, machr & 0xFF, (maclr >> 24) & 0xFF, (maclr >> 16) & 0xFF, (maclr >> 8) & 0xFF, maclr & 0xFF);
-
+#endif
         if(!fxgmac_write_patch_to_efuse(pdata, MACA0HR_FROM_EFUSE, (((u32)mac_addr[0]) << 8) | mac_addr[1])){
             succeed = false;
         }
@@ -458,47 +514,6 @@ bool  fxgmac_efuse_load(struct fxgmac_pdata* pdata)
     if (!succeed) {
         FXGMAC_PR("Fail to loading efuse, ctrl_1 0x%08x\n", reg_val);
     }
-    return succeed;
-}
-
-bool fxgmac_efuse_read_data(struct fxgmac_pdata* pdata, u32 offset, u32* value)
-{
-    bool succeed = false;
-    unsigned int wait;
-    u32 reg_val = 0;
-
-    //if (reg >= EFUSE_REGION_A_B_LENGTH) {
-    //    FXGMAC_PR("Read addr out of range %d", reg);
-    //    return succeed;
-    //}
-
-    if (value) {
-        *value = 0;
-    }
-
-    reg_val = FXGMAC_SET_REG_BITS(reg_val, EFUSE_OP_ADDR_POS, EFUSE_OP_ADDR_LEN, offset);
-    reg_val = FXGMAC_SET_REG_BITS(reg_val, EFUSE_OP_START_POS, EFUSE_OP_START_LEN, 1);
-    reg_val = FXGMAC_SET_REG_BITS(reg_val, EFUSE_OP_MODE_POS, EFUSE_OP_MODE_LEN, EFUSE_OP_MODE_ROW_READ);
-    writereg(pdata->pAdapter, reg_val, pdata->base_mem + EFUSE_OP_CTRL_0);
-    wait = 1000;
-    while (wait--) {
-        usleep_range_ex(pdata->pAdapter, 20, 50);
-        reg_val = readreg(pdata->pAdapter, pdata->base_mem + EFUSE_OP_CTRL_1);
-        if (FXGMAC_GET_REG_BITS(reg_val, EFUSE_OP_DONE_POS, EFUSE_OP_DONE_LEN)) {
-            succeed = true;
-            break;
-        }
-    }
-
-    if (succeed) {
-        if (value) {
-            *value = FXGMAC_GET_REG_BITS(reg_val, EFUSE_OP_RD_DATA_POS, EFUSE_OP_RD_DATA_LEN);
-        }
-    }
-    else {
-        FXGMAC_PR("Fail to reading efuse Byte%d\n", offset);
-    }
-
     return succeed;
 }
 
@@ -966,3 +981,4 @@ bool fxgmac_read_led_setting_from_efuse(struct fxgmac_pdata* pdata)
 
     return bsucceed;
 }
+#endif

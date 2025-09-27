@@ -1,25 +1,28 @@
-/*++
-
-Copyright (c) 2021 Motorcomm, Inc.
-Motorcomm Confidential and Proprietary.
-
-This is Motorcomm NIC driver relevant files. Please don't copy, modify,
-distribute without commercial permission.
-
---*/
+// SPDX-License-Identifier: GPL-2.0+
+/* Copyright (c) 2021 Motor-comm Corporation. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ */
 
 #include "fuxi-gmac.h"
 #include "fuxi-gmac-reg.h"
 #include "fuxi-efuse.h"
 
-#if defined(UEFI)
-#include "nic_sw.h"
-#elif defined(_WIN64) || defined(_WIN32)
+#ifdef FXGMAC_USE_ADAPTER_HANDLE
 #include "fuxi-mp.h"
-#elif defined(PXE)
-#include "fuxi_undi.h"
 #endif
-
 
 void fxgmac_release_phy(struct fxgmac_pdata* pdata);
 static void fxgmac_pwr_clock_ungate(struct fxgmac_pdata* pdata);
@@ -27,11 +30,6 @@ static void fxgmac_pwr_clock_gate(struct fxgmac_pdata* pdata);
 
 static int fxgmac_tx_complete(struct fxgmac_dma_desc *dma_desc)
 {
-#ifdef LINUX	
-#if (FXGMAC_DUMMY_TX_DEBUG)
-    return 1;
-#endif
-#endif
     return !FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
                 TX_NORMAL_DESC3_OWN_POS,
                 TX_NORMAL_DESC3_OWN_LEN);
@@ -46,7 +44,7 @@ static int fxgmac_disable_rx_csum(struct fxgmac_pdata *pdata)
                      MAC_CR_IPC_LEN, 0);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_CR);
 
-    DPRINTK("fxgmac disable rx checksum.\n"); 
+    DPRINTK("fxgmac disable rx checksum, set val = %x.\n", regval);
     return 0;
 }
 
@@ -59,17 +57,17 @@ static int fxgmac_enable_rx_csum(struct fxgmac_pdata *pdata)
                      MAC_CR_IPC_LEN, 1);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_CR);
 
-    DPRINTK("fxgmac enable rx checksum.\n"); 
+    DPRINTK("fxgmac enable rx checksum, set val = %x.\n", regval);
     return 0;
 }
 
 static int fxgmac_set_mac_address(struct fxgmac_pdata *pdata, u8 *addr)
 {
-    unsigned int mac_addr_hi, mac_addr_lo;
+    u32 mac_addr_hi, mac_addr_lo;
 
-    mac_addr_hi = (addr[5] <<  8) | (addr[4] <<  0);
-    mac_addr_lo = (addr[3] << 24) | (addr[2] << 16) |
-              (addr[1] <<  8) | (addr[0] <<  0);
+    mac_addr_hi = (((u32)(addr[5]) <<  8) | ((u32)(addr[4]) <<  0));
+    mac_addr_lo = (((u32)(addr[3]) << 24) | ((u32)(addr[2]) << 16) |
+              ((u32)(addr[1]) <<  8) | ((u32)(addr[0]) <<  0));
 
     writereg(pdata->pAdapter, mac_addr_hi, pdata->mac_regs + MAC_MACA0HR);
     writereg(pdata->pAdapter, mac_addr_lo, pdata->mac_regs + MAC_MACA0LR);
@@ -80,9 +78,9 @@ static int fxgmac_set_mac_address(struct fxgmac_pdata *pdata, u8 *addr)
 #if !defined(DPDK)
 static void fxgmac_set_mac_reg(struct fxgmac_pdata *pdata,
                    struct netdev_hw_addr *ha,
-                   unsigned int *mac_reg)
+                   unsigned int __far*mac_reg)
 {
-    unsigned int mac_addr_hi, mac_addr_lo;
+    u32 mac_addr_hi, mac_addr_lo;
     u8 *mac_addr;
 
     mac_addr_lo = 0;
@@ -99,8 +97,11 @@ static void fxgmac_set_mac_reg(struct fxgmac_pdata *pdata,
         mac_addr[1] = ha->addr[5];
 
         netif_dbg(pdata, drv, pdata->netdev,
-              "adding mac address %pM at %#x\n",
-              ha->addr, *mac_reg);
+              "adding mac address %pM\n",
+              ha->addr);
+        netif_dbg(pdata, drv, pdata->netdev,
+            "adding mac addredd at %#x\n",
+            *mac_reg);
 
         mac_addr_hi = FXGMAC_SET_REG_BITS(mac_addr_hi,
                           MAC_MACA1HR_AE_POS,
@@ -197,7 +198,7 @@ static int fxgmac_enable_rx_vlan_stripping(struct fxgmac_pdata *pdata)
     regval = FXGMAC_SET_REG_BITS(regval, MAC_VLANTR_EVLS_POS,
                      MAC_VLANTR_EVLS_LEN, 0x3);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_VLANTR);
-    DPRINTK("fxgmac enable MAC rx vlan stripping.\n");
+    DPRINTK("fxgmac enable MAC rx vlan stripping , set val = %x\n", regval);
 
     return 0;
 }
@@ -210,7 +211,7 @@ static int fxgmac_disable_rx_vlan_stripping(struct fxgmac_pdata *pdata)
     regval = FXGMAC_SET_REG_BITS(regval, MAC_VLANTR_EVLS_POS,
                      MAC_VLANTR_EVLS_LEN, 0);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_VLANTR);
-    DPRINTK("fxgmac disable MAC rx vlan stripping.\n"); 
+    DPRINTK("fxgmac disable MAC rx vlan stripping, set val = %x\n", regval);
 
     return 0;
 }
@@ -319,7 +320,7 @@ static int fxgmac_update_vlan_hash_table(struct fxgmac_pdata *pdata)
                      MAC_VLANHTR_VLHT_LEN, vlan_hash_table);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_VLANHTR);
 
-    DPRINTK("fxgmac_update_vlan_hash_tabl done,hash tbl=%08x.\n",vlan_hash_table); 
+    DPRINTK("fxgmac_update_vlan_hash_tabl done,hash tbl=%08x.\n",vlan_hash_table);
     return 0;
 }
 
@@ -340,18 +341,15 @@ static int fxgmac_set_promiscuous_mode(struct fxgmac_pdata *pdata,
     regval = FXGMAC_SET_REG_BITS(regval, MAC_PFR_PR_POS, MAC_PFR_PR_LEN, val);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_PFR);
 
-        DbgPrintF(MP_TRACE, ""STR_FORMAT" - promiscuous mode=%d, reg=%x.", __FUNCTION__, enable, regval);
-        DbgPrintF(MP_TRACE, ""STR_FORMAT" - note, vlan filter is called when set promiscuous mode=%d.", __FUNCTION__, enable);
+    DbgPrintF(MP_TRACE, "promiscuous mode=%d", enable);
+    DbgPrintF(MP_TRACE, "set val = %x", regval);
+    DbgPrintF(MP_TRACE, "note, vlan filter is called when set promiscuous mode=%d", enable);
 
     /* Hardware will still perform VLAN filtering in promiscuous mode */
     if (enable) {
         fxgmac_disable_rx_vlan_filtering(pdata);
     } else {
-        #ifdef LINUX
-        if(pdata->netdev->features & NETIF_F_HW_VLAN_CTAG_FILTER)
-        #else
-        if (0)	
-        #endif
+        if (FXGMAC_RX_VLAN_FILTERING_ENABLED)
         {
             fxgmac_enable_rx_vlan_filtering(pdata);
         }
@@ -376,7 +374,9 @@ static int fxgmac_enable_rx_broadcast(struct fxgmac_pdata *pdata,
     regval = FXGMAC_SET_REG_BITS(regval, MAC_PFR_DBF_POS, MAC_PFR_DBF_LEN, val);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_PFR);
 
-    DbgPrintF(MP_TRACE, "%s - bcast en=%d, bit-val=%d, reg=%x.", __FUNCTION__, enable, val, regval);
+    DbgPrintF(MP_TRACE, "bcast en=%d", enable);
+    DbgPrintF(MP_TRACE, "bit-val=%d", val);
+    DbgPrintF(MP_TRACE, "reg=%x", regval);
     return 0;
 }
 
@@ -396,7 +396,8 @@ static int fxgmac_set_all_multicast_mode(struct fxgmac_pdata *pdata,
     regval = FXGMAC_SET_REG_BITS(regval, MAC_PFR_PM_POS, MAC_PFR_PM_LEN, val);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_PFR);
 
-    DbgPrintF(MP_TRACE, ""STR_FORMAT" - Enable all Multicast=%d, regval=%#x.", __FUNCTION__, enable, regval);
+    DbgPrintF(MP_TRACE, "Enable all Multicast=%d", enable);
+    DbgPrintF(MP_TRACE, "set val = %#x.", regval);
 
     return 0;
 }
@@ -408,7 +409,7 @@ static void fxgmac_set_mac_addn_addrs(struct fxgmac_pdata *pdata)
     struct net_device *netdev = pdata->netdev;
     struct netdev_hw_addr *ha;
 #endif
-    unsigned int addn_macs;
+    u32 addn_macs;
     unsigned int mac_reg;
 
     mac_reg = MAC_MACA1HR;
@@ -453,14 +454,14 @@ static u32 fxgmac_crc32(unsigned char *Data, int Length)
     u32 Crc = (u32)~0;  /* Initial value. 0xFFFFFFFF */
 
     while (--Length >= 0) {
-        unsigned char	Byte = *Data++;
+        unsigned char Byte = *Data++;
         int        Bit;
 
         for (Bit = 8; --Bit >= 0; Byte >>= 1) {
             if ((Crc ^ Byte) & 1) {
                 Crc >>= 1;
                 Crc ^= 0xedb88320;
-            } 
+            }
             else {
                 Crc >>= 1;
             }
@@ -477,7 +478,7 @@ static u32 fxgmac_crc32(unsigned char *Data, int Length)
  */
 static void fxgmac_config_multicast_mac_hash_table(struct fxgmac_pdata *pdata, unsigned char *pmc_mac, int b_add)
 {
-    unsigned int hash_reg, reg_bit;
+    u32 hash_reg, reg_bit;
     unsigned int j;
     u32 crc, reversal_crc, regval;
 
@@ -488,9 +489,9 @@ static void fxgmac_config_multicast_mac_hash_table(struct fxgmac_pdata *pdata, u
             hash_reg = j;
             hash_reg = (MAC_HTR0 + hash_reg * MAC_HTR_INC);
             writereg(pdata->pAdapter, 0, pdata->mac_regs + hash_reg);
-            //DBGPRINT(MP_TRACE, ("fxgmac_config_mcast_mac_hash_table, reg %04x=0x%x\n", FUXI_MAC_REGS_OFFSET + hash_reg, readreg(pdata->mac_regs + hash_reg)));
+            //DBGPRINT(MP_TRACE, ("fxgmac_config_mcast_mac_hash_table, reg %04x=0x%x\n", FXGMAC_MAC_REGS_OFFSET + hash_reg, readreg(pdata->mac_regs + hash_reg)));
         }
-        DBGPRINT(MP_TRACE, ("<fxgmac_config_mcast_mac_hash_table, clear all mcast mac hash table\n"));
+        DBGPRINT(MP_TRACE, ("fxgmac_config_mcast_mac_hash_table, clear all mcast mac hash table size %d", j));
         return;
     }
 
@@ -499,7 +500,7 @@ static void fxgmac_config_multicast_mac_hash_table(struct fxgmac_pdata *pdata, u
     /* reverse the crc */
     for(j = 0, reversal_crc = 0; j < 32; j++)
     {
-        if(crc & (1 << j)) reversal_crc |= 1 << (31 - j);
+        if(crc & ((u32)1 << j)) reversal_crc |= ((u32)1 << (31 - j));
     }
 
     GET_REG_AND_BIT_POS((reversal_crc>>24), hash_reg, reg_bit);
@@ -510,71 +511,29 @@ static void fxgmac_config_multicast_mac_hash_table(struct fxgmac_pdata *pdata, u
     regval = FXGMAC_SET_REG_BITS(regval, reg_bit, 1, (b_add ? 1 : 0));
 
     writereg(pdata->pAdapter, regval, pdata->mac_regs + hash_reg);
-
-#if 0
-    DBGPRINT(MP_TRACE, ("<fxgmac_config_mcast_mac_hash_table, mcaddr=%02x%02x%02x%02x%02x%02x, crc=0x%08x, rcrc=0x%08x, reg=0x%x, bit=%d\n", pmc_mac[0], pmc_mac[1], pmc_mac[2], pmc_mac[3], pmc_mac[4], pmc_mac[5],
-        crc, reversal_crc, hash_reg, reg_bit));
-#endif
-
 }
 
 static void fxgmac_set_mac_hash_table(struct fxgmac_pdata *pdata)
 {
 #ifndef DPDK
-    //unsigned int hash_table_shift, hash_table_count;
-#if FUXI_MAC_HASH_TABLE
+#if FXGMAC_MAC_HASH_TABLE
     struct net_device *netdev = pdata->netdev;
     struct netdev_hw_addr *ha;
-#if 0
-    u32 hash_table[FXGMAC_MAC_HASH_TABLE_SIZE];
-    unsigned int hash_reg;
-    unsigned int i;
-    u32 crc;
-#endif
+
+    fxgmac_config_multicast_mac_hash_table(pdata, (unsigned char *)0, 1);
     netdev_for_each_mc_addr(ha, netdev)
     {
         fxgmac_config_multicast_mac_hash_table(pdata, ha->addr, 1);
     }
-#endif
-
-#if 0 //TODO
-    hash_table_shift = 26 - (pdata->hw_feat.hash_table_size >> 7);
-    hash_table_count = pdata->hw_feat.hash_table_size / 32;
-
-    memset(hash_table, 0, sizeof(hash_table));
-
-    /* Build the MAC Hash Table register values */
-    netdev_for_each_uc_addr(ha, netdev) {
-        crc = bitrev32(~crc32_le(~0, ha->addr, ETH_ALEN));
-        crc >>= hash_table_shift;
-        hash_table[crc >> 5] |= (1 << (crc & 0x1f));
-    }
-
-    netdev_for_each_mc_addr(ha, netdev) {
-        crc = bitrev32(~crc32_le(~0, ha->addr, ETH_ALEN));
-        crc >>= hash_table_shift;
-        hash_table[crc >> 5] |= (1 << (crc & 0x1f));
-    }
-
-    /* Set the MAC Hash Table registers */
-    hash_reg = MAC_HTR0;
-    for (i = 0; i < hash_table_count; i++) {
-        writereg(pdata->pAdapter, hash_table[i], pdata->mac_regs + hash_reg);
-        hash_reg += MAC_HTR_INC;
-    }
-
-    //if(hash_table[i])
-    //	DPRINTK("fxgmac_set_mac_hash_tabl[%d]=%08x.\n", i, hash_table[i]);
 #else
-    pdata = pdata;
+    (void)pdata;
 #endif
-
 #else
     (void)pdata;
 #endif
 }
 
-static int fxgmac_add_mac_addresses(struct fxgmac_pdata *pdata)
+static int fxgmac_set_mc_addresses(struct fxgmac_pdata *pdata)
 {
     if (pdata->hw_feat.hash_table_size)
         fxgmac_set_mac_hash_table(pdata);
@@ -582,6 +541,15 @@ static int fxgmac_add_mac_addresses(struct fxgmac_pdata *pdata)
         fxgmac_set_mac_addn_addrs(pdata);
 
     return 0;
+}
+
+static void fxgmac_set_multicast_mode(struct fxgmac_pdata *pdata,
+                     unsigned int enable)
+{
+    if (enable)
+        fxgmac_set_mc_addresses(pdata);
+    else
+        fxgmac_config_multicast_mac_hash_table(pdata, (unsigned char *)0, 1);
 }
 
 static void fxgmac_config_mac_address(struct fxgmac_pdata *pdata)
@@ -597,7 +565,7 @@ static void fxgmac_config_mac_address(struct fxgmac_pdata *pdata)
         regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_PFR);
         regval = FXGMAC_SET_REG_BITS(regval, MAC_PFR_HPF_POS,
                          MAC_PFR_HPF_LEN, 1);
-#if FUXI_MAC_HASH_TABLE
+#if FXGMAC_MAC_HASH_TABLE
         regval = FXGMAC_SET_REG_BITS(regval, MAC_PFR_HUC_POS,
                          MAC_PFR_HUC_LEN, 1);
 #endif
@@ -633,11 +601,7 @@ static int fxgmac_config_jumbo(struct fxgmac_pdata *pdata)
 
 static void fxgmac_config_checksum_offload(struct fxgmac_pdata *pdata)
 {
-#ifdef LINUX
-    if (pdata->netdev->features & NETIF_F_RXCSUM)
-#else
-    if (1)
-#endif
+    if (FXGMAC_RX_CHECKSUM_ENABLED)
         fxgmac_enable_rx_csum(pdata);
     else
         fxgmac_disable_rx_csum(pdata);
@@ -663,29 +627,31 @@ static void fxgmac_config_vlan_support(struct fxgmac_pdata *pdata)
     if (pdata->vlan_strip) //enable vlan rx strip by default
         fxgmac_enable_rx_vlan_stripping(pdata);
     else
-        fxgmac_disable_rx_vlan_stripping(pdata); 
+        fxgmac_disable_rx_vlan_stripping(pdata);
 
 }
 
 static int fxgmac_config_rx_mode(struct fxgmac_pdata *pdata)
 {
-#ifdef LINUX
-    struct net_device *netdev = pdata->netdev;
-#endif	
-    unsigned int pr_mode, am_mode;
+    unsigned int pr_mode, am_mode, mu_mode, bd_mode;
 
-#ifdef LINUX
-    pr_mode = ((netdev->flags & IFF_PROMISC) != 0);
-    am_mode = ((netdev->flags & IFF_ALLMULTI) != 0);
-#else
-    pr_mode = 1;// ((netdev->flags & IFF_PROMISC) != 0); //TODO
-    am_mode = 1;// ((netdev->flags & IFF_ALLMULTI) != 0);//TODO
+#ifndef FXGMAC_NETDEV_MU_MODE_ENABLED
+#define FXGMAC_NETDEV_MU_MODE_ENABLED 0
 #endif
 
+#ifndef FXGMAC_NETDEV_BD_MODE_ENABLED
+#define FXGMAC_NETDEV_BD_MODE_ENABLED 0
+#endif
+
+    pr_mode = FXGMAC_NETDEV_PR_MODE_ENABLED;
+    am_mode = FXGMAC_NETDEV_AM_MODE_ENABLED;
+    mu_mode = FXGMAC_NETDEV_MU_MODE_ENABLED;
+    bd_mode = FXGMAC_NETDEV_BD_MODE_ENABLED;
+
+    fxgmac_enable_rx_broadcast(pdata, bd_mode);
     fxgmac_set_promiscuous_mode(pdata, pr_mode);
     fxgmac_set_all_multicast_mode(pdata, am_mode);
-
-    fxgmac_add_mac_addresses(pdata);
+    fxgmac_set_multicast_mode(pdata, mu_mode);
 
     return 0;
 }
@@ -693,11 +659,11 @@ static int fxgmac_config_rx_mode(struct fxgmac_pdata *pdata)
 static void fxgmac_prepare_tx_stop(struct fxgmac_pdata *pdata,
                    struct fxgmac_channel *channel)
 {
-#ifdef LINUX	
+#ifdef FXGMAC_WAIT_TX_STOP
     unsigned int tx_dsr, tx_pos, tx_qidx;
     unsigned long tx_timeout;
     unsigned int tx_status;
-    
+
     pdata = pdata;
 
     /* Calculate the status register to read and the position within */
@@ -718,7 +684,7 @@ static void fxgmac_prepare_tx_stop(struct fxgmac_pdata *pdata,
      * descriptors. Wait for the Tx engine to enter the stopped or
      * suspended state.  Don't wait forever though...
      */
-#if FXGMAC_TX_HANG_TIMER_EN
+#if FXGMAC_TX_HANG_TIMER_ENABLED
     tx_timeout = jiffies + msecs_to_jiffies(100); /* 100ms */
 #else
     tx_timeout = jiffies + (FXGMAC_DMA_STOP_TIMEOUT * HZ);
@@ -752,7 +718,7 @@ static void fxgmac_enable_tx(struct fxgmac_pdata *pdata)
     unsigned int i;
     u32 regval;
 
-#if FXGMAC_TX_HANG_TIMER_EN
+#if FXGMAC_TX_HANG_TIMER_ENABLED
     pdata->tx_hang_restart_queuing = 0;
 #endif
 
@@ -770,19 +736,31 @@ static void fxgmac_enable_tx(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
     }
 #else
-	PMD_INIT_FUNC_TRACE();
-	struct fxgmac_tx_queue *txq;
-	struct rte_eth_dev *dev = pdata->expansion.eth_dev;
+    PMD_INIT_FUNC_TRACE();
+    struct fxgmac_tx_queue *txq;
+    struct rte_eth_dev *dev = pdata->expansion.eth_dev;
 
-	for (i = 0; i < dev->data->nb_tx_queues; i++) {
-		txq = dev->data->tx_queues[i];
-		/* Enable Tx DMA channel */
-		FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, ST, 1);
-	}
+    for (i = 0; i < dev->data->nb_tx_queues; i++) {
+        txq = dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return;
+        }
+
+        /* Enable Tx DMA channel */
+        FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, ST, 1);
+    }
 #endif
 
     /* Enable each Tx queue */
     for (i = 0; i < pdata->tx_q_count; i++) {
+
+#if FXGMAC_FAKE_4_TX_QUEUE_ENABLED
+        if (i>0)
+            break;
+#endif
+
         regval = readreg(pdata->pAdapter, FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR));
         regval = FXGMAC_SET_REG_BITS(regval, MTL_Q_TQOMR_TXQEN_POS,
                          MTL_Q_TQOMR_TXQEN_LEN,
@@ -815,21 +793,27 @@ static void fxgmac_disable_tx(struct fxgmac_pdata *pdata)
 
             fxgmac_prepare_tx_stop(pdata, channel);
 
-#if FXGMAC_TX_HANG_TIMER_EN
+#if FXGMAC_TX_HANG_TIMER_ENABLED
             pdata->tx_hang_restart_queuing = 0;
-#endif	
+#endif
         }
     }
 
 #else
-	PMD_INIT_FUNC_TRACE();
-	struct fxgmac_tx_queue *txq;
-	struct rte_eth_dev *dev = pdata->expansion.eth_dev;
+    PMD_INIT_FUNC_TRACE();
+    struct fxgmac_tx_queue *txq;
+    struct rte_eth_dev *dev = pdata->expansion.eth_dev;
 
-	for (i = 0; i < pdata->tx_q_count; i++) {
-		txq = dev->data->tx_queues[i];
-		fxgmac_txq_prepare_tx_stop(pdata, i);
-	}
+    for (i = 0; i < pdata->tx_q_count; i++) {
+        txq = dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    dev->data->port_id);
+            return;
+        }
+
+        fxgmac_txq_prepare_tx_stop(pdata, i);
+    }
 #endif
 
     /* Disable MAC Tx */
@@ -861,32 +845,36 @@ static void fxgmac_disable_tx(struct fxgmac_pdata *pdata)
         }
     }
 #else
-	for (i = 0; i < dev->data->nb_tx_queues; i++) {
-		txq = dev->data->tx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, ST, 0);
-	}
+    for (i = 0; i < dev->data->nb_tx_queues; i++) {
+        txq = dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    dev->data->port_id);
+            return;
+        }
+
+        FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, ST, 0);
+    }
 #endif
 }
 
 static void fxgmac_prepare_rx_stop(struct fxgmac_pdata *pdata,
                    unsigned int queue)
 {
-    unsigned int rx_status, prxq;
-#if defined(LINUX) || defined(DPDK)
+    u32 rx_status, prxq;
+#if defined(FXGMAC_WAIT_RX_STOP_BY_PRXQ_RXQSTS)
     unsigned int rxqsts;
     unsigned long rx_timeout;
-#if defined(DPDK)
-    unsigned long jiffies = rte_get_timer_cycles();
-#endif
+
     /* The Rx engine cannot be stopped if it is actively processing
      * packets. Wait for the Rx queue to empty the Rx fifo.  Don't
      * wait forever though...
      */
-#if FXGMAC_TX_HANG_TIMER_EN
+#if FXGMAC_TX_HANG_TIMER_ENABLED
     rx_timeout = jiffies + msecs_to_jiffies(500); /* 500ms, larger is better */
 #else
     rx_timeout = jiffies + (FXGMAC_DMA_STOP_TIMEOUT * HZ);
-#endif		
+#endif
     while (time_before(jiffies, rx_timeout)) {
         rx_status = readreg(pdata->pAdapter, FXGMAC_MTL_REG(pdata, queue, MTL_Q_RQDR));
         prxq = FXGMAC_GET_REG_BITS(rx_status, MTL_Q_RQDR_PRXQ_POS,
@@ -914,7 +902,7 @@ static void fxgmac_prepare_rx_stop(struct fxgmac_pdata *pdata,
     if (0 == busy) {
         rx_status = readreg(pdata->pAdapter, FXGMAC_MTL_REG(pdata, queue, MTL_Q_RQDR));
         DbgPrintF(MP_WARN, "warning !!!timed out waiting for Rx queue %u to empty\n", queue);
-    }	
+    }
 #endif
 }
 
@@ -923,7 +911,8 @@ static void fxgmac_enable_rx(struct fxgmac_pdata *pdata)
 #ifndef DPDK
     struct fxgmac_channel *channel;
 #endif
-    unsigned int regval, i;
+    unsigned int i;
+    u32 regval;
 
     /* Enable each Rx DMA channel */
 #ifndef DPDK
@@ -940,16 +929,21 @@ static void fxgmac_enable_rx(struct fxgmac_pdata *pdata)
     }
 
 #else
-	PMD_INIT_FUNC_TRACE();
-	struct fxgmac_rx_queue *rxq;
-	struct rte_eth_dev *dev = pdata->expansion.eth_dev;
-	//struct fxgmac_pdata *pdata =  pdata->dev->data->dev_private;
+    PMD_INIT_FUNC_TRACE();
+    struct fxgmac_rx_queue *rxq;
+    struct rte_eth_dev *dev = pdata->expansion.eth_dev;
+    //struct fxgmac_pdata *pdata =  pdata->dev->data->dev_private;
 
-	for (i = 0; i < dev->data->nb_rx_queues; i++) {
-		rxq = dev->data->rx_queues[i];
-		/* Enable Rx DMA channel */
-		FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, SR, 1);
-	}
+    for (i = 0; i < dev->data->nb_rx_queues; i++) {
+        rxq = dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    dev->data->port_id);
+            return;
+        }
+        /* Enable Rx DMA channel */
+        FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, SR, 1);
+    }
 #endif
 
     /* Enable each Rx queue */
@@ -969,21 +963,21 @@ static void fxgmac_enable_rx(struct fxgmac_pdata *pdata)
                      MAC_CR_RE_LEN, 1);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_CR);
 #else
-	/* Enable MAC Rx */
-	FXGMAC_IOWRITE_BITS(pdata, MAC_ECR, DCRCC, 1);
+    /* Enable MAC Rx */
+    FXGMAC_IOWRITE_BITS(pdata, MAC_ECR, DCRCC, 1);
 
-	/* Frame is forwarded after stripping CRC to application*/
-	if (pdata->expansion.crc_strip_enable) {
-		FXGMAC_IOWRITE_BITS(pdata, MAC_CR, CST, 1);
-		FXGMAC_IOWRITE_BITS(pdata, MAC_CR, ACS, 1);
-	}
-	FXGMAC_IOWRITE_BITS(pdata, MAC_CR, RE, 1);
+    /* Frame is forwarded after stripping CRC to application*/
+    if (pdata->expansion.crc_strip_enable) {
+        FXGMAC_IOWRITE_BITS(pdata, MAC_CR, CST, 1);
+        FXGMAC_IOWRITE_BITS(pdata, MAC_CR, ACS, 1);
+    }
+    FXGMAC_IOWRITE_BITS(pdata, MAC_CR, RE, 1);
 #endif
 }
 static void fxgmac_enable_channel_rx(struct fxgmac_pdata* pdata, unsigned int queue)
 {
     struct fxgmac_channel* channel;
-    unsigned int regval;
+    u32 regval;
 
     /* Enable Rx DMA channel */
     channel = pdata->channel_head + queue;
@@ -1036,14 +1030,20 @@ static void fxgmac_disable_rx(struct fxgmac_pdata *pdata)
     for (i = 0; i < pdata->rx_q_count; i++)
         fxgmac_prepare_rx_stop(pdata, i);
 #else
-	PMD_INIT_FUNC_TRACE();
-	struct fxgmac_rx_queue *rxq;
-	struct rte_eth_dev *dev = pdata->expansion.eth_dev;
+    PMD_INIT_FUNC_TRACE();
+    struct fxgmac_rx_queue *rxq;
+    struct rte_eth_dev *dev = pdata->expansion.eth_dev;
 
-	for (i = 0; i < dev->data->nb_rx_queues; i++) {
-		rxq = dev->data->rx_queues[i];
-		fxgmac_prepare_rx_stop(pdata, i);
-	}
+    for (i = 0; i < dev->data->nb_rx_queues; i++) {
+        rxq = dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    dev->data->port_id);
+            return;
+        }
+
+        fxgmac_prepare_rx_stop(pdata, i);
+    }
 #endif
 
     /* Disable each Rx queue */
@@ -1064,642 +1064,44 @@ static void fxgmac_disable_rx(struct fxgmac_pdata *pdata)
         }
     }
 #else
-	for (i = 0; i < dev->data->nb_rx_queues; i++) {
-		rxq = dev->data->rx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, SR, 0);
-	}
-#endif
-}
-
-#ifdef LINUX
-static void fxgmac_tx_start_xmit(struct fxgmac_channel *channel,
-                 struct fxgmac_ring *ring)
-{
-    struct fxgmac_pdata *pdata = channel->pdata;
-    struct fxgmac_desc_data *desc_data;
-
-    /* Make sure everything is written before the register write */
-    wmb();
-
-    /* Issue a poll command to Tx DMA by writing address
-     * of next immediate free descriptor
-     */
-    desc_data = FXGMAC_GET_DESC_DATA(ring, ring->cur);
-    //DPRINTK("tx_start_xmit: dump before wr reg,descs-%08x,%08x,%08x,%08x\n",desc_data->dma_desc->desc0,desc_data->dma_desc->desc1,desc_data->dma_desc->desc2,desc_data->dma_desc->desc3);
-#if !(FXGMAC_DUMMY_TX_DEBUG)
-    writereg(pdata->pAdapter, lower_32_bits(desc_data->dma_desc_addr),
-           FXGMAC_DMA_REG(channel, DMA_CH_TDTR_LO));
-#else
-    DPRINTK("dummy tx, fxgmac_tx_start_xmit, tail reg=0x%lx,val=%08x\n", FXGMAC_DMA_REG(channel, DMA_CH_TDTR_LO) - pdata->mac_regs, (u32)lower_32_bits(desc_data->dma_desc_addr));
-#endif
-    if(netif_msg_tx_done(pdata)) DPRINTK("tx_start_xmit: dump before wr reg,dma base=0x%016llx,reg=0x%08x, tx timer usecs=%u,tx_timer_active=%u\n",
-        desc_data->dma_desc_addr, readreg(pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_TDTR_LO)), pdata->tx_usecs, channel->tx_timer_active);
-
-    ring->tx.xmit_more = 0;
-}
-#endif
-
-#ifdef LINUX
-static void fxgmac_dev_xmit(struct fxgmac_channel *channel)
-{
-    struct fxgmac_pdata *pdata = channel->pdata;
-    struct fxgmac_ring *ring = channel->tx_ring;
-    unsigned int tso_context, vlan_context;
-    struct fxgmac_desc_data *desc_data;
-    struct fxgmac_dma_desc *dma_desc;
-    struct fxgmac_pkt_info *pkt_info;
-    unsigned int csum, tso, vlan;
-    int start_index = ring->cur;
-    int cur_index = ring->cur;
-    int i;
-
-    if(netif_msg_tx_done(pdata)) DPRINTK("dev_xmit callin, desc cur=%d\n", cur_index);
-
-    pkt_info = &ring->pkt_info;
-    csum = FXGMAC_GET_REG_BITS(pkt_info->attributes,
-                   TX_PACKET_ATTRIBUTES_CSUM_ENABLE_POS,
-                TX_PACKET_ATTRIBUTES_CSUM_ENABLE_LEN);
-    tso = FXGMAC_GET_REG_BITS(pkt_info->attributes,
-                  TX_PACKET_ATTRIBUTES_TSO_ENABLE_POS,
-                TX_PACKET_ATTRIBUTES_TSO_ENABLE_LEN);
-    vlan = FXGMAC_GET_REG_BITS(pkt_info->attributes,
-                   TX_PACKET_ATTRIBUTES_VLAN_CTAG_POS,
-                TX_PACKET_ATTRIBUTES_VLAN_CTAG_LEN);
-
-    if (tso && (pkt_info->mss != ring->tx.cur_mss))
-        tso_context = 1;
-    else
-        tso_context = 0;
-
-    //if(tso && (netif_msg_tx_done(pdata)))
-    if((tso_context) && (netif_msg_tx_done(pdata))) {
-        //tso is initialized to start...	
-        DPRINTK("fxgmac_dev_xmit,tso_%s tso=0x%x,pkt_mss=%d,cur_mss=%d\n",(pkt_info->mss)?"start":"stop", tso, pkt_info->mss, ring->tx.cur_mss);
-    }
-
-    if (vlan && (pkt_info->vlan_ctag != ring->tx.cur_vlan_ctag))
-        vlan_context = 1;
-    else
-        vlan_context = 0;
-
-    if(vlan && (netif_msg_tx_done(pdata))) DPRINTK("fxgmac_dev_xmi:pkt vlan=%d, ring vlan=%d, vlan_context=%d\n", pkt_info->vlan_ctag, ring->tx.cur_vlan_ctag, vlan_context);
-
-    desc_data = FXGMAC_GET_DESC_DATA(ring, cur_index);
-    dma_desc = desc_data->dma_desc;
-
-    /* Create a context descriptor if this is a TSO pkt_info */
-    if (tso_context || vlan_context) {
-        if (tso_context) {
-#if 0
-            netif_dbg(pdata, tx_queued, pdata->netdev,
-                  "TSO context descriptor, mss=%u\n",
-                  pkt_info->mss);
-#else
-            if (netif_msg_tx_done(pdata)) DPRINTK("xlgamc dev xmit,construct tso context descriptor, mss=%u\n",
-                  pkt_info->mss);
-#endif
-
-            /* Set the MSS size */
-            dma_desc->desc2 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc2,
-                        TX_CONTEXT_DESC2_MSS_POS,
-                        TX_CONTEXT_DESC2_MSS_LEN,
-                        pkt_info->mss);
-
-            /* Mark it as a CONTEXT descriptor */
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_CONTEXT_DESC3_CTXT_POS,
-                        TX_CONTEXT_DESC3_CTXT_LEN,
-                        1);
-
-            /* Indicate this descriptor contains the MSS */
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_CONTEXT_DESC3_TCMSSV_POS,
-                        TX_CONTEXT_DESC3_TCMSSV_LEN,
-                        1);
-
-            ring->tx.cur_mss = pkt_info->mss;
+    for (i = 0; i < dev->data->nb_rx_queues; i++) {
+        rxq = dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    dev->data->port_id);
+            return;
         }
-
-        if (vlan_context) {
-            netif_dbg(pdata, tx_queued, pdata->netdev,
-                  "VLAN context descriptor, ctag=%u\n",
-                  pkt_info->vlan_ctag);
-
-            /* Mark it as a CONTEXT descriptor */
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_CONTEXT_DESC3_CTXT_POS,
-                        TX_CONTEXT_DESC3_CTXT_LEN,
-                        1);
-
-            /* Set the VLAN tag */
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_CONTEXT_DESC3_VT_POS,
-                        TX_CONTEXT_DESC3_VT_LEN,
-                        pkt_info->vlan_ctag);
-
-            /* Indicate this descriptor contains the VLAN tag */
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_CONTEXT_DESC3_VLTV_POS,
-                        TX_CONTEXT_DESC3_VLTV_LEN,
-                        1);
-
-            ring->tx.cur_vlan_ctag = pkt_info->vlan_ctag;
-        }
-
-        //cur_index++;
-        cur_index = FXGMAC_GET_ENTRY(cur_index, ring->dma_desc_count);
-        desc_data = FXGMAC_GET_DESC_DATA(ring, cur_index);
-        dma_desc = desc_data->dma_desc;
+        FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, SR, 0);
     }
-    
-    /* Update buffer address (for TSO this is the header) */
-    dma_desc->desc0 =  cpu_to_le32(lower_32_bits(desc_data->skb_dma));
-    dma_desc->desc1 =  cpu_to_le32(upper_32_bits(desc_data->skb_dma));
-    
-    /* Update the buffer length */
-    dma_desc->desc2 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc2,
-                TX_NORMAL_DESC2_HL_B1L_POS,
-                TX_NORMAL_DESC2_HL_B1L_LEN,
-                desc_data->skb_dma_len);
-
-    /* VLAN tag insertion check */
-    if (vlan) {
-        dma_desc->desc2 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc2,
-                    TX_NORMAL_DESC2_VTIR_POS,
-                    TX_NORMAL_DESC2_VTIR_LEN,
-                    TX_NORMAL_DESC2_VLAN_INSERT);
-        pdata->stats.tx_vlan_packets++;
-    }
-
-    /* Timestamp enablement check */
-    if (FXGMAC_GET_REG_BITS(pkt_info->attributes,
-                TX_PACKET_ATTRIBUTES_PTP_POS,
-                TX_PACKET_ATTRIBUTES_PTP_LEN))
-        dma_desc->desc2 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc2,
-                    TX_NORMAL_DESC2_TTSE_POS,
-                    TX_NORMAL_DESC2_TTSE_LEN,
-                    1);
-
-    /* Mark it as First Descriptor */
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                TX_NORMAL_DESC3_FD_POS,
-                TX_NORMAL_DESC3_FD_LEN,
-                1);
-
-    /* Mark it as a NORMAL descriptor */
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                TX_NORMAL_DESC3_CTXT_POS,
-                TX_NORMAL_DESC3_CTXT_LEN,
-                0);
-
-    /* Set OWN bit if not the first descriptor */
-    if (cur_index != start_index)
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_OWN_POS,
-                    TX_NORMAL_DESC3_OWN_LEN,
-                    1);
-
-    if (tso) {
-        /* Enable TSO */
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_TSE_POS,
-                    TX_NORMAL_DESC3_TSE_LEN, 1);
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_TCPPL_POS,
-                    TX_NORMAL_DESC3_TCPPL_LEN,
-                    pkt_info->tcp_payload_len);
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_TCPHDRLEN_POS,
-                    TX_NORMAL_DESC3_TCPHDRLEN_LEN,
-                    pkt_info->tcp_header_len / 4);
-
-        pdata->stats.tx_tso_packets++;
-    } else {
-        /* Enable CRC and Pad Insertion */
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_CPC_POS,
-                    TX_NORMAL_DESC3_CPC_LEN, 0);
-
-        /* Enable HW CSUM */
-        if (csum)
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_NORMAL_DESC3_CIC_POS,
-                        TX_NORMAL_DESC3_CIC_LEN,
-                        0x3);
-
-        /* Set the total length to be transmitted */
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_FL_POS,
-                    TX_NORMAL_DESC3_FL_LEN,
-                    pkt_info->length);
-    }
-    if(netif_msg_tx_done(pdata)) DPRINTK("dev_xmit before more descs, desc cur=%d, start=%d, desc=%#x,%#x,%#x,%#x\n", 
-        cur_index, start_index, dma_desc->desc0, dma_desc->desc1, dma_desc->desc2, dma_desc->desc3);
-
-    if (start_index <= cur_index)
-        i = cur_index - start_index + 1;
-    else
-        i = ring->dma_desc_count - start_index + cur_index;
-
-    for (; i < pkt_info->desc_count; i++) {
-        cur_index = FXGMAC_GET_ENTRY(cur_index, ring->dma_desc_count);
-
-        desc_data = FXGMAC_GET_DESC_DATA(ring, cur_index);
-        dma_desc = desc_data->dma_desc;
-
-        /* Update buffer address */
-        dma_desc->desc0 =
-            cpu_to_le32(lower_32_bits(desc_data->skb_dma));
-        dma_desc->desc1 =
-            cpu_to_le32(upper_32_bits(desc_data->skb_dma));
-
-        /* Update the buffer length */
-        dma_desc->desc2 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc2,
-                    TX_NORMAL_DESC2_HL_B1L_POS,
-                    TX_NORMAL_DESC2_HL_B1L_LEN,
-                    desc_data->skb_dma_len);
-
-        /* Set OWN bit */
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_OWN_POS,
-                    TX_NORMAL_DESC3_OWN_LEN, 1);
-
-        /* Mark it as NORMAL descriptor */
-        dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    TX_NORMAL_DESC3_CTXT_POS,
-                    TX_NORMAL_DESC3_CTXT_LEN, 0);
-
-        /* Enable HW CSUM */
-        if (csum)
-            dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                        dma_desc->desc3,
-                        TX_NORMAL_DESC3_CIC_POS,
-                        TX_NORMAL_DESC3_CIC_LEN,
-                        0x3);
-    }
-
-    /* Set LAST bit for the last descriptor */
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                TX_NORMAL_DESC3_LD_POS,
-                TX_NORMAL_DESC3_LD_LEN, 1);
-
-    dma_desc->desc2 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc2,
-                TX_NORMAL_DESC2_IC_POS,
-                TX_NORMAL_DESC2_IC_LEN, 1);
-
-    /* Save the Tx info to report back during cleanup */
-    desc_data->tx.packets = pkt_info->tx_packets;
-    desc_data->tx.bytes = pkt_info->tx_bytes;
-
-    if(netif_msg_tx_done(pdata)) DPRINTK("dev_xmit last descs, desc cur=%d, desc=%#x,%#x,%#x,%#x\n", 
-        cur_index, dma_desc->desc0, dma_desc->desc1, dma_desc->desc2, dma_desc->desc3);
-
-    /* In case the Tx DMA engine is running, make sure everything
-     * is written to the descriptor(s) before setting the OWN bit
-     * for the first descriptor
-     */
-    dma_wmb();
-
-    /* Set OWN bit for the first descriptor */
-    desc_data = FXGMAC_GET_DESC_DATA(ring, start_index);
-    dma_desc = desc_data->dma_desc;
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                TX_NORMAL_DESC3_OWN_POS,
-                TX_NORMAL_DESC3_OWN_LEN, 1);
-
-    if(netif_msg_tx_done(pdata)) DPRINTK("dev_xmit first descs, start=%d, desc=%#x,%#x,%#x,%#x\n", 
-        start_index, dma_desc->desc0, dma_desc->desc1, dma_desc->desc2, dma_desc->desc3);
-
-    if (netif_msg_tx_queued(pdata))
-        fxgmac_dump_tx_desc(pdata, ring, start_index,
-                    pkt_info->desc_count, 1);
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) )
-    if(netif_msg_tx_done(pdata)) DPRINTK("dev_xmit about to call tx_start_xmit, ring xmit_more=%d,txq_stopped=%x\n",ring->tx.xmit_more, netif_xmit_stopped(netdev_get_tx_queue(pdata->netdev, channel->queue_index)));
-#else /* ( LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,165) )*/
-    if(netif_msg_tx_done(pdata)) DPRINTK("dev_xmit about to call tx_start_xmit, pkt xmit_more=%d,txq_stopped=%x\n",pkt_info->skb->xmit_more, netif_xmit_stopped(netdev_get_tx_queue(pdata->netdev, channel->queue_index)));
-#endif
-
-    /* Make sure ownership is written to the descriptor */
-    smp_wmb();
-
-    //ring->cur = cur_index + 1;
-    ring->cur = FXGMAC_GET_ENTRY(cur_index, ring->dma_desc_count);
-
-#if 0
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) )
-    if (!ring->tx.xmit_more || netif_xmit_stopped(netdev_get_tx_queue(pdata->netdev,
-                           channel->queue_index)))
-#elif ( LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,1) )
-    if (!pkt_info->skb->xmit_more ||
-        netif_xmit_stopped(netdev_get_tx_queue(pdata->netdev,
-                           channel->queue_index)))
-#else
-    if (netif_xmit_stopped(netdev_get_tx_queue(pdata->netdev,
-                           channel->queue_index)))
-#endif
-    {
-        fxgmac_tx_start_xmit(channel, ring);
-    }
-    else
-        ring->tx.xmit_more = 1;
-#endif
-
-    fxgmac_tx_start_xmit(channel, ring);
-
-    /* yzhang for reduce debug output */
-    if(netif_msg_tx_done(pdata)){
-        DPRINTK("dev_xmit callout %s: descriptors %u to %u written\n",
-          channel->name, start_index & (ring->dma_desc_count - 1),
-          (ring->cur - 1) & (ring->dma_desc_count - 1));
-    }
-}
-#endif
-#ifdef LINUX
-static void fxgmac_get_rx_tstamp(struct fxgmac_pkt_info *pkt_info,
-                 struct fxgmac_dma_desc *dma_desc)
-{
-    //u32 tsa, tsd;
-    u64 nsec;
-#if 0
-    tsa = FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                     RX_CONTEXT_DESC3_TSA_POS,
-                RX_CONTEXT_DESC3_TSA_LEN);
-    tsd = FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                     RX_CONTEXT_DESC3_TSD_POS,
-                RX_CONTEXT_DESC3_TSD_LEN);
-    if (tsa && !tsd) {
-#endif
-        nsec = le32_to_cpu(dma_desc->desc1);
-        nsec <<= 32;
-        nsec |= le32_to_cpu(dma_desc->desc0);
-        if (nsec != 0xffffffffffffffffULL) {
-            pkt_info->rx_tstamp = nsec;
-            pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                    pkt_info->attributes,
-                    RX_PACKET_ATTRIBUTES_RX_TSTAMP_POS,
-                    RX_PACKET_ATTRIBUTES_RX_TSTAMP_LEN,
-                    1);
-        }
-    //}
-}
-#endif
-
-static void fxgmac_tx_desc_reset(struct fxgmac_desc_data *desc_data)
-{
-    struct fxgmac_dma_desc *dma_desc = desc_data->dma_desc;
-
-    /* Reset the Tx descriptor
-     *   Set buffer 1 (lo) address to zero
-     *   Set buffer 1 (hi) address to zero
-     *   Reset all other control bits (IC, TTSE, B2L & B1L)
-     *   Reset all other control bits (OWN, CTXT, FD, LD, CPC, CIC, etc)
-     */
-    dma_desc->desc0 = 0;
-    dma_desc->desc1 = 0;
-    dma_desc->desc2 = 0;
-    dma_desc->desc3 = 0;
-
-    /* Make sure ownership is written to the descriptor */
-    dma_wmb();
-}
-
-static void fxgmac_tx_desc_init(struct fxgmac_channel *channel)
-{
-    struct fxgmac_ring *ring = channel->tx_ring;
-    struct fxgmac_desc_data *desc_data;
-    int start_index = ring->cur;
-    unsigned int i;
-    start_index = start_index;
-    //DEBUGPRINT(INIT, "["STR_FORMAT","STR_FORMAT",%d]:dma_desc_count=%d,0x%x\n",__FILE__, __func__,__LINE__,ring->dma_desc_count,channel->tx_ring);
-
-    /* Initialize all descriptors */
-    for (i = 0; i < ring->dma_desc_count; i++) {
-        desc_data = FXGMAC_GET_DESC_DATA(ring, i);
-
-        /* Initialize Tx descriptor */
-        fxgmac_tx_desc_reset(desc_data);
-    }
-
-    ///* Update the total number of Tx descriptors */
-    //writereg(ring->dma_desc_count - 1, FXGMAC_DMA_REG(channel, DMA_CH_TDRLR));
-    writereg(channel->pdata->pAdapter, channel->pdata->tx_desc_count - 1, FXGMAC_DMA_REG(channel, DMA_CH_TDRLR));
-
-/* Update the starting address of descriptor ring */
-#if defined(LINUX)
-    desc_data = FXGMAC_GET_DESC_DATA(ring, start_index);
-    writereg(channel->pdata->pAdapter, upper_32_bits(desc_data->dma_desc_addr),
-           FXGMAC_DMA_REG(channel, DMA_CH_TDLR_HI));
-    writereg(channel->pdata->pAdapter, lower_32_bits(desc_data->dma_desc_addr),
-           FXGMAC_DMA_REG(channel, DMA_CH_TDLR_LO));
-#elif defined(UEFI)
-    writereg(channel->pdata->pAdapter, GetPhyAddrHigh(((PADAPTER)channel->pdata->pAdapter)->TbdPhyAddr),//adpt->TbdPhyAddr
-        FXGMAC_DMA_REG(channel, DMA_CH_TDLR_HI));
-    writereg(channel->pdata->pAdapter, GetPhyAddrLow(((PADAPTER)channel->pdata->pAdapter)->TbdPhyAddr),
-        FXGMAC_DMA_REG(channel, DMA_CH_TDLR_LO));
-#elif defined(PXE)
-
-#elif defined(UBOOT)
-
-#elif defined(DPDK)
-
-#else //netadaptercx & ndis
-    writereg(channel->pdata->pAdapter, NdisGetPhysicalAddressHigh(((PMP_ADAPTER)channel->pdata->pAdapter)->HwTbdBasePa),
-        FXGMAC_DMA_REG(channel, DMA_CH_TDLR_HI));
-    writereg(channel->pdata->pAdapter, NdisGetPhysicalAddressLow(((PMP_ADAPTER)channel->pdata->pAdapter)->HwTbdBasePa),
-        FXGMAC_DMA_REG(channel, DMA_CH_TDLR_LO));
-#endif
-
-}
-
-static void fxgmac_rx_desc_reset(struct fxgmac_pdata *pdata,
-                 struct fxgmac_desc_data *desc_data,
-                 unsigned int index)
-{
-#ifdef LINUX
-    struct fxgmac_dma_desc *dma_desc = desc_data->dma_desc;
-
-    /* Reset the Rx descriptor
-     *   Set buffer 1 (lo) address to header dma address (lo)
-     *   Set buffer 1 (hi) address to header dma address (hi)
-     *   Set buffer 2 (lo) address to buffer dma address (lo)
-     *   Set buffer 2 (hi) address to buffer dma address (hi) and
-     *     set control bits OWN and INTE
-     */
-    //hdr_dma = desc_data->rx.hdr.dma_base + desc_data->rx.hdr.dma_off;
-    //buf_dma = desc_data->rx.buf.dma_base + desc_data->rx.buf.dma_off;
-    dma_desc->desc0 = cpu_to_le32(lower_32_bits(desc_data->rx.buf.dma_base));
-    dma_desc->desc1 = cpu_to_le32(upper_32_bits(desc_data->rx.buf.dma_base));
-    dma_desc->desc2 = 0;//cpu_to_le32(lower_32_bits(buf_dma));
-    dma_desc->desc3 = 0;//cpu_to_le32(upper_32_bits(buf_dma));
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                RX_NORMAL_DESC3_INTE_POS,
-                RX_NORMAL_DESC3_INTE_LEN,
-                1);
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                RX_NORMAL_DESC3_BUF2V_POS,
-                RX_NORMAL_DESC3_BUF2V_LEN,
-                0);
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                dma_desc->desc3,
-                RX_NORMAL_DESC3_BUF1V_POS,
-                RX_NORMAL_DESC3_BUF1V_LEN,
-                1);
-
-    /* Since the Rx DMA engine is likely running, make sure everything
-     * is written to the descriptor(s) before setting the OWN bit
-     * for the descriptor
-     */
-    dma_wmb();
-
-    dma_desc->desc3 = FXGMAC_SET_REG_BITS_LE(
-                    dma_desc->desc3,
-                    RX_NORMAL_DESC3_OWN_POS,
-                    RX_NORMAL_DESC3_OWN_LEN,
-                    1);
-
-    /* Make sure ownership is written to the descriptor */
-    dma_wmb();
-#else
-    pdata = pdata;
-    desc_data = desc_data;
-    index = index;
-#endif
-}
-
-static void fxgmac_rx_desc_init(struct fxgmac_channel *channel)
-{
-    struct fxgmac_pdata *pdata = channel->pdata;
-    struct fxgmac_ring *ring = channel->rx_ring;
-#ifdef LINUX	
-    unsigned int start_index = ring->cur;
-#endif	
-    struct fxgmac_desc_data *desc_data;
-    unsigned int i;
-#if defined(UEFI)
-    UINT64   HwRbdPa;
-#elif defined(_WIN64) || defined(_WIN32)
-    unsigned int Qid;
-    NDIS_PHYSICAL_ADDRESS   HwRbdPa;
-#elif defined(PXE)
-#endif
-
-
-    /* Initialize all descriptors */
-    for (i = 0; i < ring->dma_desc_count; i++) {
-        desc_data = FXGMAC_GET_DESC_DATA(ring, i);
-
-        /* Initialize Rx descriptor */
-        fxgmac_rx_desc_reset(pdata, desc_data, i);
-    }
-
-#if defined(LINUX)
-    /* Update the total number of Rx descriptors */
-    writereg(pdata->pAdapter, ring->dma_desc_count - 1, FXGMAC_DMA_REG(channel, DMA_CH_RDRLR));
-
-    /* Update the starting address of descriptor ring */
-    desc_data = FXGMAC_GET_DESC_DATA(ring, start_index);
-    writereg(pdata->pAdapter, upper_32_bits(desc_data->dma_desc_addr),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDLR_HI));
-    writereg(pdata->pAdapter, lower_32_bits(desc_data->dma_desc_addr),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDLR_LO));
-
-    /* Update the Rx Descriptor Tail Pointer */
-    desc_data = FXGMAC_GET_DESC_DATA(ring, start_index +
-        ring->dma_desc_count - 1);
-    writereg(pdata->pAdapter, lower_32_bits(desc_data->dma_desc_addr),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDTR_LO));
-#elif defined(UEFI)
-    writereg(pdata->pAdapter, pdata->rx_desc_count - 1, 
-        FXGMAC_DMA_REG(channel, DMA_CH_RDRLR));
-    /* Update the starting address of descriptor ring */
-    writereg(pdata->pAdapter, GetPhyAddrHigh(((PADAPTER)channel->pdata->pAdapter)->RbdPhyAddr),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDLR_HI));
-    writereg(pdata->pAdapter, GetPhyAddrLow(((PADAPTER)channel->pdata->pAdapter)->RbdPhyAddr),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDLR_LO));
-
-
-    HwRbdPa = ((PADAPTER)channel->pdata->pAdapter)->RbdPhyAddr + (pdata->rx_desc_count - 1) * sizeof(struct fxgmac_dma_desc);
-
-    /* Update the Rx Descriptor Tail Pointer */
-    writereg(pdata->pAdapter, GetPhyAddrLow(HwRbdPa), FXGMAC_DMA_REG(channel, DMA_CH_RDTR_LO));
-#elif defined(PXE)
-#elif defined(UBOOT)
-#elif defined(DPDK)
-#else //netadaptercx & ndis
-    Qid = (unsigned int)(channel - pdata->channel_head);
-    DbgPrintF(MP_TRACE, ""STR_FORMAT": %d, Qid =%d\n", __FUNCTION__, __LINE__, Qid);
-
-    writereg(channel->pdata->pAdapter, ((PMP_ADAPTER)channel->pdata->pAdapter)->RxQueue[Qid].NumHwRecvBuffers - 1,
-        FXGMAC_DMA_REG(channel, DMA_CH_RDRLR));
-
-    /* Update the starting address of descriptor ring */
-    writereg(channel->pdata->pAdapter, NdisGetPhysicalAddressHigh(((PMP_ADAPTER)channel->pdata->pAdapter)->RxQueue[Qid].HwRbdBasePa),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDLR_HI));
-    writereg(channel->pdata->pAdapter, NdisGetPhysicalAddressLow(((PMP_ADAPTER)channel->pdata->pAdapter)->RxQueue[Qid].HwRbdBasePa),
-        FXGMAC_DMA_REG(channel, DMA_CH_RDLR_LO));
-
-    #if defined(NIC_NET_ADAPETERCX)
-    /* Update the Rx Descriptor Tail Pointer */
-    writereg(channel->pdata->pAdapter, NdisGetPhysicalAddressLow(((PMP_ADAPTER)channel->pdata->pAdapter)->RxQueue[Qid].HwRbdBasePa), 
-        FXGMAC_DMA_REG(channel, DMA_CH_RDTR_LO));
-        HwRbdPa.QuadPart = 0;
-    #else
-    HwRbdPa.QuadPart = ((PMP_ADAPTER)channel->pdata->pAdapter)->RxQueue[Qid].HwRbdBasePa.QuadPart
-        + (((PMP_ADAPTER)channel->pdata->pAdapter)->RxQueue[Qid].NumHwRecvBuffers - 1) * sizeof(HW_RBD);
-
-    /* Update the Rx Descriptor Tail Pointer */
-    writereg(channel->pdata->pAdapter, NdisGetPhysicalAddressLow(HwRbdPa), FXGMAC_DMA_REG(channel, DMA_CH_RDTR_LO));
-    #endif
 #endif
 }
 
 static int fxgmac_is_context_desc(struct fxgmac_dma_desc *dma_desc)
 {
     /* Rx and Tx share CTXT bit, so check TDES3.CTXT bit */
-    return FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
+    int regval;
+    regval = (int)FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
                 TX_NORMAL_DESC3_CTXT_POS,
                 TX_NORMAL_DESC3_CTXT_LEN);
+    return regval;
 }
 
 static int fxgmac_is_last_desc(struct fxgmac_dma_desc *dma_desc)
 {
     /* Rx and Tx share LD bit, so check TDES3.LD bit */
-    return FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
+    int regval;
+    regval = (int)FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
                 TX_NORMAL_DESC3_LD_POS,
                 TX_NORMAL_DESC3_LD_LEN);
+    return regval;
 }
 
 static int fxgmac_disable_tx_flow_control(struct fxgmac_pdata *pdata)
 {
     unsigned int max_q_count, q_count;
-    unsigned int reg, regval;
+    unsigned int reg;
     unsigned int i;
+    u32 regval;
 
     /* Clear MTL flow control */
     for (i = 0; i < pdata->rx_q_count; i++) {
@@ -1730,8 +1132,9 @@ static int fxgmac_disable_tx_flow_control(struct fxgmac_pdata *pdata)
 static int fxgmac_enable_tx_flow_control(struct fxgmac_pdata *pdata)
 {
     unsigned int max_q_count, q_count;
-    unsigned int reg, regval;
+    unsigned int reg;
     unsigned int i;
+    u32 regval;
 
     /* Set MTL flow control */
     for (i = 0; i < pdata->rx_q_count; i++) {
@@ -1826,14 +1229,18 @@ static int fxgmac_config_rx_coalesce(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_RIWT));
     }
 #else
-	struct fxgmac_rx_queue *rxq;
-	unsigned int i;
+    struct fxgmac_rx_queue *rxq;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
-		rxq = pdata->expansion.eth_dev->data->rx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RIWT, RWT,
-				pdata->rx_riwt);
-	}
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
+        rxq = pdata->expansion.eth_dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return -1;
+        }
+        FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RIWT, RWT, pdata->rx_riwt);
+    }
 #endif
 
     return 0;
@@ -1890,53 +1297,63 @@ static void fxgmac_config_rx_buffer_size(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_RCR));
     }
 #else
-	struct fxgmac_rx_queue *rxq;
-	unsigned int i;
+    struct fxgmac_rx_queue *rxq;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
-		rxq = pdata->expansion.eth_dev->data->rx_queues[i];
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
+        rxq = pdata->expansion.eth_dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return;
+        }
 
-		rxq->buf_size = rte_pktmbuf_data_room_size(rxq->mb_pool) -
-			RTE_PKTMBUF_HEADROOM;
-		rxq->buf_size = (rxq->buf_size + FXGMAC_RX_BUF_ALIGN - 1) &
-			~(FXGMAC_RX_BUF_ALIGN - 1);
+        rxq->buf_size = rte_pktmbuf_data_room_size(rxq->mb_pool) -
+                        RTE_PKTMBUF_HEADROOM;
+        rxq->buf_size = (rxq->buf_size + FXGMAC_RX_BUF_ALIGN - 1) &
+                        ~(FXGMAC_RX_BUF_ALIGN - 1);
 
-		if (rxq->buf_size > pdata->rx_buf_size)
-			pdata->rx_buf_size = rxq->buf_size;
+        if (rxq->buf_size > pdata->rx_buf_size)
+            pdata->rx_buf_size = rxq->buf_size;
 
-		FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, RBSZ,
-					rxq->buf_size);
-	}
+        FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, RBSZ, rxq->buf_size);
+    }
 #endif
 }
 
 static void fxgmac_config_tso_mode(struct fxgmac_pdata *pdata)
 {
+    u32 tso;
 #ifndef DPDK
     struct fxgmac_channel *channel;
     unsigned int i;
     u32 regval;
+    tso = pdata->hw_feat.tso;
 
     channel = pdata->channel_head;
     for (i = 0; i < pdata->channel_count; i++, channel++) {
         if (!channel->tx_ring)
             break;
 
-        if (pdata->hw_feat.tso) {
-            regval = readreg(pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
-            regval = FXGMAC_SET_REG_BITS(regval, DMA_CH_TCR_TSE_POS,
-                             DMA_CH_TCR_TSE_LEN, 1);
-            writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
-        }
+        regval = readreg(pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
+        regval = FXGMAC_SET_REG_BITS(regval, DMA_CH_TCR_TSE_POS,
+                         DMA_CH_TCR_TSE_LEN, tso);
+        writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
     }
 #else
-	struct fxgmac_tx_queue *txq;
-	unsigned int i;
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
-		txq = pdata->expansion.eth_dev->data->tx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, TSE,
-				pdata->tx_pbl);
-	}
+    struct fxgmac_tx_queue *txq;
+    unsigned int i;
+    tso = pdata->hw_feat.tso;
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
+        txq = pdata->expansion.eth_dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return;
+        }
+
+        FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, TSE, tso);
+    }
 #endif
 }
 
@@ -1958,13 +1375,17 @@ static void fxgmac_config_sph_mode(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_CR));
     }
 #else
-	struct fxgmac_rx_queue *rxq;
+    struct fxgmac_rx_queue *rxq;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
-		rxq = pdata->expansion.eth_dev->data->rx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_CR, SPH,
-				pdata->rx_pbl);
-	}
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
+        rxq = pdata->expansion.eth_dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return;
+        }
+        FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_CR, SPH, 0);
+    }
 #endif
 
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_ECR);
@@ -1974,11 +1395,11 @@ static void fxgmac_config_sph_mode(struct fxgmac_pdata *pdata)
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_ECR);
 }
 
-static unsigned int fxgmac_usec_to_riwt(struct fxgmac_pdata *pdata,
+static unsigned long fxgmac_usec_to_riwt(struct fxgmac_pdata *pdata,
                     unsigned int usec)
 {
     unsigned long rate;
-    unsigned int ret;
+    unsigned long ret;
 
     rate = pdata->sysclk_rate;
 
@@ -1992,11 +1413,11 @@ static unsigned int fxgmac_usec_to_riwt(struct fxgmac_pdata *pdata,
     return ret;
 }
 
-static unsigned int fxgmac_riwt_to_usec(struct fxgmac_pdata *pdata,
+static unsigned long fxgmac_riwt_to_usec(struct fxgmac_pdata *pdata,
                     unsigned int riwt)
 {
     unsigned long rate;
-    unsigned int ret;
+    unsigned long ret;
 
     rate = pdata->sysclk_rate;
 
@@ -2061,15 +1482,16 @@ static void fxgmac_config_queue_mapping(struct fxgmac_pdata *pdata)
 {
     unsigned int ppq, ppq_extra, prio, prio_queues;
     //unsigned int qptc, qptc_extra;
-    unsigned int queue;
-    unsigned int reg, regval;
+    unsigned int reg;
     unsigned int mask;
     unsigned int i, j;
+    u32 regval;
 
     /* Map the MTL Tx Queues to Traffic Classes
      *   Note: Tx Queues >= Traffic Classes
      */
 #if 0
+    unsigned int queue;
     qptc = pdata->tx_q_count / pdata->hw_feat.tc_cnt;
     qptc_extra = pdata->tx_q_count % pdata->hw_feat.tc_cnt;
     for (i = 0, queue = 0; i < pdata->hw_feat.tc_cnt; i++) {
@@ -2102,8 +1524,8 @@ static void fxgmac_config_queue_mapping(struct fxgmac_pdata *pdata)
         }
     }
 #else
-    queue = 0;
-    DPRINTK("need to map TXq(%u) to TC\n", queue);
+    //queue = 0;
+    //DPRINTK("need to map TXq(%u) to TC\n", queue);
 #endif
     /* Map the 8 VLAN priority values to available MTL Rx queues */
     prio_queues = min_t(unsigned int, IEEE_8021QAZ_MAX_TCS,
@@ -2117,14 +1539,18 @@ static void fxgmac_config_queue_mapping(struct fxgmac_pdata *pdata)
         mask = 0;
         for (j = 0; j < ppq; j++) {
             netif_dbg(pdata, drv, pdata->netdev,
-                  "PRIO%u mapped to RXq%u\n", prio, i);
+                  "PRIO%u,", prio);
+            netif_dbg(pdata, drv, pdata->netdev,
+                  " mapped to RXq%u\n", i);
             mask |= (1 << prio);
             prio++;
         }
 
         if (i < ppq_extra) {
             netif_dbg(pdata, drv, pdata->netdev,
-                  "PRIO%u mapped to RXq%u\n", prio, i);
+                  "PRIO%u.", i);
+            netif_dbg(pdata, drv, pdata->netdev,
+                  " mapped to Rxq%u", i);
             mask |= (1 << prio);
             prio++;
         }
@@ -2172,12 +1598,12 @@ static void fxgmac_config_queue_mapping(struct fxgmac_pdata *pdata)
 #endif
 }
 
-static unsigned int fxgmac_calculate_per_queue_fifo(
-                    unsigned int fifo_size,
+static u32 fxgmac_calculate_per_queue_fifo(
+                    unsigned long fifo_size,
                     unsigned int queue_count)
 {
-    unsigned int q_fifo_size;
-    unsigned int p_fifo;
+    unsigned long q_fifo_size;
+    unsigned long p_fifo;
 
     /* Calculate the configured fifo size */
     q_fifo_size = 1 << (fifo_size + 7);
@@ -2198,17 +1624,52 @@ static unsigned int fxgmac_calculate_per_queue_fifo(
     return p_fifo;
 }
 
+static u32 fxgmac_calculate_max_checksum_size(struct fxgmac_pdata* pdata)
+{
+    u32 fifo_size;
+
+    fifo_size = fxgmac_calculate_per_queue_fifo(
+        pdata->hw_feat.tx_fifo_size,
+        pdata->tx_q_count);
+
+    /* Each increment in the queue fifo size represents 256 bytes of
+     * fifo, with 0 representing 256 bytes. Distribute the fifo equally
+     * between the queues.
+     */
+    fifo_size = (fifo_size + 1) * 256;
+
+    /* Packet size < TxQSize - (PBL + N)*(DATAWIDTH/8),
+     * Datawidth = 128
+     * If Datawidth = 32, N = 7, elseif Datawidth != 32, N = 5.
+     * TxQSize is indicated by TQS field of MTL_TxQ#_Operation_Mode register
+     * PBL = TxPBL field in the DMA_CH#_TX_Control register in all DMA configurations.
+     */
+    fifo_size -= (pdata->tx_pbl * (pdata->pblx8 ? 8 : 1) + 5) * (FXGMAC_DATA_WIDTH / 8);
+    fifo_size -= 256;
+
+    return fifo_size;
+}
+
 static void fxgmac_config_tx_fifo_size(struct fxgmac_pdata *pdata)
 {
-    unsigned int fifo_size;
+    u32 fifo_size;
     unsigned int i;
     u32 regval;
 
     fifo_size = fxgmac_calculate_per_queue_fifo(
                 pdata->hw_feat.tx_fifo_size,
+#if FXGMAC_FAKE_4_TX_QUEUE_ENABLED
+                1);//force to 1 queue
+#else
                 pdata->tx_q_count);
+#endif
 
     for (i = 0; i < pdata->tx_q_count; i++) {
+#if FXGMAC_FAKE_4_TX_QUEUE_ENABLED
+        //DPRINTK("Tx idx > 0,break\n");
+        if (i>0)
+                break;
+#endif
         regval = readreg(pdata->pAdapter, FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR));
         regval = FXGMAC_SET_REG_BITS(regval, MTL_Q_TQOMR_TQS_POS,
                          MTL_Q_TQOMR_TQS_LEN, fifo_size);
@@ -2216,13 +1677,16 @@ static void fxgmac_config_tx_fifo_size(struct fxgmac_pdata *pdata)
     }
 
     netif_info(pdata, drv, pdata->netdev,
-           "%d Tx hardware queues, %d byte fifo per queue\n",
-           pdata->tx_q_count, ((fifo_size + 1) * 256));
+           "%d Tx hardware queues,",
+           pdata->tx_q_count);
+    netif_info(pdata, drv, pdata->netdev,
+           " %d byte fifo per queue\n",
+           ((fifo_size + 1) * 256));
 }
 
 static void fxgmac_config_rx_fifo_size(struct fxgmac_pdata *pdata)
 {
-    unsigned int fifo_size;
+    u32 fifo_size;
     unsigned int i;
     u32 regval;
 
@@ -2238,8 +1702,11 @@ static void fxgmac_config_rx_fifo_size(struct fxgmac_pdata *pdata)
     }
 
     netif_info(pdata, drv, pdata->netdev,
-           "%d Rx hardware queues, %d byte fifo per queue\n",
-           pdata->rx_q_count, ((fifo_size + 1) * 256));
+           "%d Rx hardware queues,",
+           pdata->rx_q_count);
+    netif_info(pdata, drv, pdata->netdev,
+           " %d byte fifo per queue\n",
+           ((fifo_size + 1) * 256));
 }
 
 static void fxgmac_config_flow_control_threshold(struct fxgmac_pdata *pdata)
@@ -2249,10 +1716,9 @@ static void fxgmac_config_flow_control_threshold(struct fxgmac_pdata *pdata)
 
     for (i = 0; i < pdata->rx_q_count; i++) {
         regval = readreg(pdata->pAdapter, FXGMAC_MTL_REG(pdata, i, MTL_Q_RQOMR));
-        /* Activate flow control when less than 6k left in fifo */
-        //In windows driver,it sets the value 6, but in Linux it sets the value 10. Here it uses value that exists in windows driver
+        /* Activate flow control when less than 4k left in fifo */
         regval = FXGMAC_SET_REG_BITS(regval, MTL_Q_RQOMR_RFA_POS, MTL_Q_RQOMR_RFA_LEN, 6);
-        /* De-activate flow control when more than 10k left in fifo */
+        /* De-activate flow control when more than 6k left in fifo */
         regval = FXGMAC_SET_REG_BITS(regval, MTL_Q_RQOMR_RFD_POS, MTL_Q_RQOMR_RFD_LEN, 10);
         writereg(pdata->pAdapter, regval, FXGMAC_MTL_REG(pdata, i, MTL_Q_RQOMR));
     }
@@ -2325,17 +1791,22 @@ static int fxgmac_config_osp_mode(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
     }
 #else
-	/* Force DMA to operate on second packet before closing descriptors
-	 *  of first packet
-	 */
-	struct fxgmac_tx_queue *txq;
-	unsigned int i;
+    /* Force DMA to operate on second packet before closing descriptors
+     *  of first packet
+     */
+    struct fxgmac_tx_queue *txq;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
-		txq = pdata->expansion.eth_dev->data->tx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, OSP,
-					pdata->tx_osp_mode);
-	}
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
+        txq = pdata->expansion.eth_dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return -1;
+        }
+
+        FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, OSP, pdata->tx_osp_mode);
+    }
 #endif
     return 0;
 }
@@ -2356,20 +1827,25 @@ static int fxgmac_config_pblx8(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_CR));
     }
 #else
-	struct fxgmac_tx_queue *txq;
-	unsigned int i;
+    struct fxgmac_tx_queue *txq;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
-		txq = pdata->expansion.eth_dev->data->tx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_CR, PBLX8,
-					pdata->pblx8);
-	}
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
+        txq = pdata->expansion.eth_dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return -1;
+        }
+
+        FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_CR, PBLX8, pdata->pblx8);
+    }
 #endif
 
     return 0;
 }
 
-static int fxgmac_get_tx_pbl_val(struct fxgmac_pdata *pdata)
+static u32 fxgmac_get_tx_pbl_val(struct fxgmac_pdata *pdata)
 {
     u32 regval;
 
@@ -2398,20 +1874,24 @@ static int fxgmac_config_tx_pbl_val(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
     }
 #else
-	struct fxgmac_tx_queue *txq;
-	unsigned int i;
+    struct fxgmac_tx_queue *txq;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
-		txq = pdata->expansion.eth_dev->data->tx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, PBL,
-				pdata->tx_pbl);
-	}
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
+        txq = pdata->expansion.eth_dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return -1;
+        }
+        FXGMAC_DMA_IOWRITE_BITS(txq, DMA_CH_TCR, PBL, pdata->tx_pbl);
+    }
 #endif
 
     return 0;
 }
 
-static int fxgmac_get_rx_pbl_val(struct fxgmac_pdata *pdata)
+static u32 fxgmac_get_rx_pbl_val(struct fxgmac_pdata *pdata)
 {
     u32 regval;
 
@@ -2440,14 +1920,18 @@ static int fxgmac_config_rx_pbl_val(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_RCR));
     }
 #else
-	struct fxgmac_rx_queue *rxq;
-	unsigned int i;
+    struct fxgmac_rx_queue *rxq;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
-		rxq = pdata->expansion.eth_dev->data->rx_queues[i];
-		FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, PBL,
-				pdata->rx_pbl);
-	}
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_rx_queues; i++) {
+        rxq = pdata->expansion.eth_dev->data->rx_queues[i];
+        if (!rxq) {
+            DPRINTK("Rx queue not setup for port %d\n",
+                    pdata->expansion.eth_dev->data->port_id);
+            return -1;
+        }
+        FXGMAC_DMA_IOWRITE_BITS(rxq, DMA_CH_RCR, PBL, pdata->rx_pbl);
+    }
 #endif
 
     return 0;
@@ -2483,7 +1967,7 @@ static u64 fxgmac_mmc_read(struct fxgmac_pdata *pdata, unsigned int reg_lo)
 
 static void fxgmac_tx_mmc_int(struct fxgmac_pdata *pdata)
 {
-    unsigned int mmc_isr = readreg(pdata->pAdapter, pdata->mac_regs + MMC_TISR);
+    u32 mmc_isr = readreg(pdata->pAdapter, pdata->mac_regs + MMC_TISR);
     struct fxgmac_stats *stats = &pdata->stats;
 
     if (FXGMAC_GET_REG_BITS(mmc_isr,
@@ -2645,7 +2129,7 @@ static void fxgmac_tx_mmc_int(struct fxgmac_pdata *pdata)
 
 static void fxgmac_rx_mmc_int(struct fxgmac_pdata *pdata)
 {
-    unsigned int mmc_isr = readreg(pdata->pAdapter, pdata->mac_regs + MMC_RISR);
+    u32 mmc_isr = readreg(pdata->pAdapter, pdata->mac_regs + MMC_RISR);
     struct fxgmac_stats *stats = &pdata->stats;
 
     if (FXGMAC_GET_REG_BITS(mmc_isr,
@@ -2992,7 +2476,7 @@ static void fxgmac_config_mmc(struct fxgmac_pdata *pdata)
                      MMC_CR_CR_LEN, 1);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MMC_CR);
 
-#if defined(FUXI_MISC_INT_HANDLE_FEATURE_EN) && FUXI_MISC_INT_HANDLE_FEATURE_EN
+#if FXGMAC_MISC_INT_HANDLE_FEATURE_ENABLED
     //disable interrupts for rx Tcp and ip good pkt counter which is not read by MMC counter process.
     //regval = readreg(pdata->mac_regs + 0x800);
     writereg(pdata->pAdapter, 0xffffffff, pdata->mac_regs + MMC_IPCRXINTMASK);
@@ -3000,7 +2484,7 @@ static void fxgmac_config_mmc(struct fxgmac_pdata *pdata)
 }
 
 static int fxgmac_write_rss_reg(struct fxgmac_pdata *pdata, unsigned int type,
-                unsigned int index, unsigned int val)
+                unsigned int index, u32 val)
 {
     int ret = 0;
     type = type;
@@ -3037,7 +2521,6 @@ static int fxgmac_write_rss_options(struct fxgmac_pdata *pdata)
     return 0;
 }
 
-#if  !defined(DPDK)
 static int fxgmac_read_rss_hash_key(struct fxgmac_pdata *pdata, u8 *key_buf)
 {
     //struct net_device *netdev = pdata->netdev;
@@ -3047,24 +2530,23 @@ static int fxgmac_read_rss_hash_key(struct fxgmac_pdata *pdata, u8 *key_buf)
     while (key_regs--) {
         (*key) = cpu_to_be32(readreg(pdata->pAdapter, pdata->base_mem + (MGMT_RSS_KEY0 + key_regs * MGMT_RSS_KEY_REG_INC))) ;
 
-        DBGPRINT(MP_LOUD, ("fxgmac_read_rss_hash_key: idx=%d, reg=%x, key=0x%08x\n", 
+        DBGPRINT(MP_LOUD, ("fxgmac_read_rss_hash_key: idx=%d, reg=%x, key=0x%08x\n",
             key_regs, MGMT_RSS_KEY0 + key_regs * MGMT_RSS_KEY_REG_INC, (u32)(*key)));
         key++;
     }
 
     return 0;
 }
-#endif
 
 static int fxgmac_write_rss_hash_key(struct fxgmac_pdata *pdata)
 {
     unsigned int key_regs = sizeof(pdata->rss_key) / sizeof(u32);
-    u32			*key = (u32 *)&pdata->rss_key;
+    u32 *key = (u32 *)&pdata->rss_key;
     int ret;
 
     while (key_regs--) {
-        ret = fxgmac_write_rss_reg(pdata, FXGMAC_RSS_HASH_KEY_TYPE,
-                       MGMT_RSS_KEY0 + key_regs * MGMT_RSS_KEY_REG_INC, cpu_to_be32 (*key));
+        ret = fxgmac_write_rss_reg(pdata, (unsigned int)FXGMAC_RSS_HASH_KEY_TYPE,
+                       (unsigned int)(MGMT_RSS_KEY0 + key_regs * MGMT_RSS_KEY_REG_INC), (unsigned int)(cpu_to_be32 (*key)));
         if (ret)
             return ret;
         key++;
@@ -3108,7 +2590,7 @@ static int fxgmac_write_rss_lookup_table(struct fxgmac_pdata *pdata)
 
 static int fxgmac_set_rss_hash_key(struct fxgmac_pdata *pdata, const u8 *key)
 {
-    memcpy(pdata->rss_key, key, sizeof(pdata->rss_key));//CopyMem
+    memcpy(pdata->rss_key, (void*)key, sizeof(pdata->rss_key));//CopyMem
 
     return fxgmac_write_rss_hash_key(pdata);
 }
@@ -3119,7 +2601,7 @@ static int fxgmac_set_rss_lookup_table(struct fxgmac_pdata *pdata,
     unsigned int i;
     u32 tval;
 
-#if FXGMAC_MSIX_CH0RXDIS_EN
+#if FXGMAC_MSIX_CH0RXDIS_ENABLED
         DPRINTK("Set_rss_table, rss ctrl eth=0x%08x\n", 0);
 
         return 0;
@@ -3157,7 +2639,7 @@ static int fxgmac_enable_rss(struct fxgmac_pdata* pdata)
     u32 regval;
     u32 size = 0;
 
-#ifdef LINUX
+#ifdef FXGMAC_USE_DEFAULT_RSS_KEY_TBALE
     int ret;
 
     if (!pdata->hw_feat.rss) {
@@ -3176,7 +2658,7 @@ static int fxgmac_enable_rss(struct fxgmac_pdata* pdata)
         return ret;
     }
 #endif
- 
+
     regval = readreg(pdata->pAdapter, pdata->base_mem + MGMT_RSS_CTRL);
 
     //2022-04-19 xiaojiang comment
@@ -3186,7 +2668,7 @@ static int fxgmac_enable_rss(struct fxgmac_pdata* pdata)
     regval = FXGMAC_SET_REG_BITS(regval, MGMT_RSS_CTRL_TBL_SIZE_POS,
                      MGMT_RSS_CTRL_TBL_SIZE_LEN, size);
 
-#if FXGMAC_MSIX_CH0RXDIS_EN
+#if FXGMAC_MSIX_CH0RXDIS_ENABLED
     /* set default cpu id to 1 */
     regval = FXGMAC_SET_REG_BITS(regval, 8,
                      2, 1);
@@ -3200,7 +2682,7 @@ static int fxgmac_enable_rss(struct fxgmac_pdata* pdata)
                      MGMT_RSS_CTRL_OPT_LEN, pdata->rss_options);
 
     writereg(pdata->pAdapter, regval, (pdata->base_mem + MGMT_RSS_CTRL));
-    DPRINTK("enable_rss callout, rss ctrl reg=0x%08x\n", regval); 
+    DPRINTK("enable_rss callout, set val = 0x%08x\n", regval);
 
     return 0;
 }
@@ -3212,7 +2694,7 @@ static int fxgmac_disable_rss(struct fxgmac_pdata *pdata)
     if (!pdata->hw_feat.rss)
         return -EOPNOTSUPP;
 
-#if FXGMAC_MSIX_CH0RXDIS_EN
+#if FXGMAC_MSIX_CH0RXDIS_ENABLED
         DPRINTK("Disable_rss, rss ctrl eth=0x%08x\n", 0);
 
         return 0;
@@ -3223,7 +2705,7 @@ static int fxgmac_disable_rss(struct fxgmac_pdata *pdata)
                      MAC_RSSCR_RSSE_LEN, 0);
 
     writereg(pdata->pAdapter, regval, (pdata->base_mem + MGMT_RSS_CTRL));
-    DPRINTK("disable_rss, rss ctrl reg=0x%08x\n", regval);
+    DPRINTK("disable_rss, set val = 0x%08x\n", regval);
 
     return 0;
 }
@@ -3241,12 +2723,12 @@ static void fxgmac_config_rss(struct fxgmac_pdata *pdata)
         ret = fxgmac_disable_rss(pdata);
 
     if (ret)
-        DBGPRINT(MP_ERROR, ("fxgmac_config_rss: error configuring RSS\n")); 
+        DPRINTK("fxgmac_config_rss: error configuring RSS\n");
 }
 
-#if defined(LINUX) || defined(_WIN64) || defined(_WIN32)
+#if defined(FXGMAC_POWER_MANAGEMENT)
 //
-void fxgmac_update_aoe_ipv4addr(struct fxgmac_pdata* pdata, u8* ip_addr)
+static void fxgmac_update_aoe_ipv4addr(struct fxgmac_pdata* pdata, u8* ip_addr)
 {
     unsigned int regval, ipval = 0;
 
@@ -3273,10 +2755,10 @@ void fxgmac_update_aoe_ipv4addr(struct fxgmac_pdata* pdata, u8* ip_addr)
         //inet_aton((const char *)ip_addr, (struct in_addr *)&ipval);
         //ipval = (unsigned int)in_aton((const char *)ip_addr);
         ipval = (ip_addr[0] << 24) | (ip_addr[1] << 16) | (ip_addr[2] << 8) | (ip_addr[3] << 0);
-        DPRINTK("%s, covert IP dotted-addr %s to binary 0x%08x ok.\n", __FUNCTION__, ip_addr, cpu_to_be32(ipval)); 
+        DPRINTK("%s, covert IP dotted-addr %s to binary 0x%08x ok.\n", __FUNCTION__, ip_addr, cpu_to_be32(ipval));
     } else
     {
-#ifdef LINUX
+#ifdef FXGMAC_AOE_FEATURE_ENABLED
         /* get ipv4 addr from net device */
         //2022-04-25 xiaojiang Linux Driver behavior
         ipval = fxgmac_get_netdev_ip4addr(pdata);
@@ -3289,25 +2771,8 @@ void fxgmac_update_aoe_ipv4addr(struct fxgmac_pdata* pdata, u8* ip_addr)
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_ARP_PROTO_ADDR);
     if(regval != /*cpu_to_be32*/(ipval)) {
         writereg(pdata->pAdapter, /*cpu_to_be32*/(ipval), pdata->mac_regs + MAC_ARP_PROTO_ADDR);
-        DPRINTK("%s, update arp ipaddr reg from 0x%08x to 0x%08x\n", __FUNCTION__, regval, /*cpu_to_be32*/(ipval)); 
+        DPRINTK("%s, update arp ipaddr reg from 0x%08x to 0x%08x\n", __FUNCTION__, regval, /*cpu_to_be32*/(ipval));
     }
-}
-
-void fxgmac_config_arp_offload(struct fxgmac_pdata *pdata, int en)
-{
-    unsigned int regval = 0;
-
-    /* enable or disable ARP offload engine. */
-    if (!pdata->hw_feat.aoe) {
-        netdev_err(pdata->netdev, "error configuring ARP offload - not supported.\n");
-        return;
-    }
-
-    regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_CR);
-    regval = FXGMAC_SET_REG_BITS(regval, MAC_CR_ARPEN_POS, MAC_CR_ARPEN_LEN, en ? 1 : 0);
-    writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_CR);
-
-    DPRINTK("config_aoe, reg val=0x%08x, arp offload en=%d\n", regval, en); 
 }
 
 static int fxgmac_enable_arp_offload(struct fxgmac_pdata* pdata)
@@ -3343,18 +2808,18 @@ static int fxgmac_disable_arp_offload(struct fxgmac_pdata* pdata)
 
 /* this function config register for NS offload function
  * parameters:
- * 	index - 0~1, index to NS look up table. one entry of the lut is like this |remote|solicited|target0|target1|
- *	remote_addr - ipv6 addr where fuxi gets the NS solicitation pkt(request). in common, it is 0 to match any remote machine.
- *	solicited_addr - the solicited node multicast group address which fuxi computes and joins.
- *	target_addr1 - it is the target address in NS solicitation pkt.
- *	target_addr2 - second target address, any address (with last 6B same with target address?).
+ *  index - 0~1, index to NS look up table. one entry of the lut is like this |remote|solicited|target0|target1|
+ *  remote_addr - ipv6 addr where fuxi gets the NS solicitation pkt(request). in common, it is 0 to match any remote machine.
+ *  solicited_addr - the solicited node multicast group address which fuxi computes and joins.
+ *  target_addr1 - it is the target address in NS solicitation pkt.
+ *  target_addr2 - second target address, any address (with last 6B same with target address?).
  */
 static int fxgmac_set_ns_offload(struct fxgmac_pdata* pdata,unsigned int index, unsigned char* remote_addr,unsigned char* solicited_addr,unsigned char*target_addr1,unsigned char *target_addr2,unsigned char *mac_addr)
 //static int fxgmac_set_ns_offload(struct nic_pdata* pdata,unsigned char index, PIPV6NSPARAMETERS PIPv6NSPara)
 
 {
     u32 regval;
-    u32 Address[4],mac_addr_hi,mac_addr_lo; 
+    u32 Address[4],mac_addr_hi,mac_addr_lo;
     u8  i, remote_not_zero = 0;
 
 #if 1
@@ -3375,7 +2840,7 @@ static int fxgmac_set_ns_offload(struct fxgmac_pdata* pdata,unsigned int index, 
             NS_LUT_TARGET_ISANY_LEN, 0);
     writereg(pdata->pAdapter, regval, pdata->base_mem + 0X38 * index + NS_LUT_MAC_ADDR_CTL);
 
-    //AR 
+    //AR
     for (i = 0; i < 16/4; i++)
     {
         Address[i] = (remote_addr[i * 4 + 0] << 24) | (remote_addr[i * 4 + 1] << 16) | (remote_addr[i * 4 + 2] << 8) | (remote_addr[i * 4 + 3] << 0);
@@ -3422,7 +2887,7 @@ static int fxgmac_set_ns_offload(struct fxgmac_pdata* pdata,unsigned int index, 
     regval = FXGMAC_SET_REG_BITS(regval, NS_TPID_PRO_CTPID_POS,
         NS_TPID_PRO_CTPID_LEN, 0X9100);
     writereg(regval, pdata->mac_regs - 0x2000 + NS_TPID_PRO);
-    //AR 
+    //AR
     writereg(0X20000000, pdata->mac_regs - 0x2000 + NS_LUT_ROMOTE0);
     writereg(0X00000000, pdata->mac_regs - 0x2000 + NS_LUT_ROMOTE1);
     writereg(0X00000000, pdata->mac_regs - 0x2000 + NS_LUT_ROMOTE2);
@@ -3475,8 +2940,8 @@ static int fxgmac_set_ns_offload(struct fxgmac_pdata* pdata,unsigned int index, 
     return 0;
 }
 
-#ifdef LINUX
-void fxgmac_update_ns_offload_ipv6addr(struct fxgmac_pdata *pdata, unsigned int param)
+#ifdef FXGMAC_NS_OFFLOAD_ENABLED
+static void fxgmac_update_ns_offload_ipv6addr(struct fxgmac_pdata *pdata, unsigned int param)
 {
     struct net_device *netdev = pdata->netdev;
     unsigned char addr_buf[5][16];
@@ -3495,17 +2960,17 @@ void fxgmac_update_ns_offload_ipv6addr(struct fxgmac_pdata *pdata, unsigned int 
         return;
     }
 
-    DPRINTK("%s, Get net device binary IPv6 ok, local-link=%pI6\n", __FUNCTION__, target_addr1); 
-    DPRINTK("%s, Get net device binary IPv6 ok, solicited =%pI6\n", __FUNCTION__, solicited_addr); 
+    DPRINTK("%s, Get net device binary IPv6 ok, local-link=%pI6\n", __FUNCTION__, target_addr1);
+    DPRINTK("%s, Get net device binary IPv6 ok, solicited =%pI6\n", __FUNCTION__, solicited_addr);
 
     memcpy(mac_addr, netdev->dev_addr, netdev->addr_len);
-    DPRINTK("%s, Get net device MAC addr ok, ns_tab idx=%d, %02x:%02x:%02x:%02x:%02x:%02x\n", 
-        __FUNCTION__, pdata->expansion.ns_offload_tab_idx, mac_addr[0], mac_addr[1], 
-        mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]); 
+    DPRINTK("%s, Get net device MAC addr ok, ns_tab idx=%d, %02x:%02x:%02x:%02x:%02x:%02x\n",
+        __FUNCTION__, pdata->expansion.ns_offload_tab_idx, mac_addr[0], mac_addr[1],
+        mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
     memset(remote_addr, 0, 16);
-    fxgmac_set_ns_offload(pdata, pdata->expansion.ns_offload_tab_idx++, 
-                            remote_addr, solicited_addr, target_addr1, 
+    fxgmac_set_ns_offload(pdata, pdata->expansion.ns_offload_tab_idx++,
+                            remote_addr, solicited_addr, target_addr1,
                             target_addr1, mac_addr);
     if(pdata->expansion.ns_offload_tab_idx >= 2) pdata->expansion.ns_offload_tab_idx = 0;
 
@@ -3598,7 +3063,7 @@ static u16 wol_crc16(u8* pucframe, u16 uslen)
         }bits;
     };
 
-    union type8	{
+    union type8 {
         u16 raw;
 
         struct {
@@ -3654,13 +3119,15 @@ static int fxgmac_set_wake_pattern(
     struct wol_bitmap_pattern* wol_pattern,
     u32 pattern_cnt)
 {
-    u32                         i, j, kp, km, mask_index;
-    int                         z;
-    u16                         map_index;
-    u8                          mask[MAX_PATTERN_SIZE];
-    u32                         regval = 0;
-    u32                         total_cnt = 0, pattern_inherited_cnt = 0;
+    u32 i, j, kp, km, mask_index;
+    int z;
+    u16 map_index;
+    u8  mask[MAX_PATTERN_SIZE];
+    u32 regval = 0;
+    u32 total_cnt = 0, pattern_inherited_cnt = 0;
     u8* ptdata, * ptmask;
+    (void)ptdata;
+    (void)ptmask;
 
     if (pattern_cnt > MAX_PATTERN_COUNT) {
         DbgPrintF(MP_TRACE, "%s - Error: %d patterns, exceed %d, not supported!\n",
@@ -3696,7 +3163,7 @@ static int fxgmac_set_wake_pattern(
         /* Please program pattern[i] to NIC for pattern match wakeup.
         * pattern_size, pattern_info, mask_info
         */
-        //save the mask pattern 
+        //save the mask pattern
         mask_index = 0;
         map_index = 0;
         for (j = 0; j < pdata->pattern[i].mask_size; j++) {
@@ -3777,12 +3244,12 @@ static int fxgmac_set_wake_pattern(
             pdata->pattern[i * 4 + 1].pattern_offset ? 0x0 :
             !(pdata->pattern[i * 4 + 1].mask_info[0] & 0x01) ? 0x0 :
             (pdata->pattern[i * 4 + 1].pattern_info[0] & 0x01) ? (0x1 << (3 + 8)) : 0x0;
-        regval |= (i * 4 + 2 >= total_cnt) ? 0x0 : 
+        regval |= (i * 4 + 2 >= total_cnt) ? 0x0 :
             (i * 4 + 2 >= pattern_cnt) ? (0x1 << (3 + 16)) :
             pdata->pattern[i * 4 + 2].pattern_offset ? 0x0 :
             !(pdata->pattern[i * 4 + 2].mask_info[0] & 0x01) ? 0x0 :
             (pdata->pattern[i * 4 + 2].pattern_info[0] & 0x01) ? (0x1 << (3 + 16)) : 0x0;
-        regval |= (i * 4 + 3 >= total_cnt) ? 0x0 : 
+        regval |= (i * 4 + 3 >= total_cnt) ? 0x0 :
             (i * 4 + 3 >= pattern_cnt) ? (0x1 << (3 + 24)) :
             pdata->pattern[i * 4 + 3].pattern_offset ? 0x0 :
             !(pdata->pattern[i * 4 + 3].mask_info[0] & 0x01) ? 0x0 :
@@ -3890,7 +3357,7 @@ static int fxgmac_disable_wake_magic_pattern(struct fxgmac_pdata* pdata)
     return 0;
 }
 
-#if defined(FUXI_PM_WPI_READ_FEATURE_EN) && FUXI_PM_WPI_READ_FEATURE_EN
+#if FXGMAC_PM_WPI_READ_FEATURE_ENABLED
 /*
  * enable Wake packet indication. called to enable before sleep/hibernation
  * and no needed to call disable for that, fxgmac_get_wake_packet_indication will clear to normal once done.
@@ -3919,12 +3386,12 @@ static void fxgmac_enable_wake_packet_indication(struct fxgmac_pdata* pdata, int
 /*
  * this function read Wake up packet after MDIS resume
  * input:
- * 		pdata
- *		wpi_buf		container of a packet.
- *		buf_size	size of the packet container. since HW limit to 14bits, ie 16KB all together.
+ *      pdata
+ *      wpi_buf     container of a packet.
+ *      buf_size    size of the packet container. since HW limit to 14bits, ie 16KB all together.
  * output:
- * 		wake_reason	from HW, we can indentify 1)magic packet, or 2)pattern(remote wake packet) or WAKE_REASON_HW_ERR indicates err
- *		packet_size length of the wake packet. 0 indicates exception.
+ *      wake_reason from HW, we can indentify 1)magic packet, or 2)pattern(remote wake packet) or WAKE_REASON_HW_ERR indicates err
+ *      packet_size length of the wake packet. 0 indicates exception.
  *
  */
 static void fxgmac_get_wake_packet_indication(struct fxgmac_pdata* pdata, int* wake_reason, u32* wake_pattern_number, u8* wpi_buf, u32 buf_size, u32* packet_size)
@@ -3958,7 +3425,7 @@ static void fxgmac_get_wake_packet_indication(struct fxgmac_pdata* pdata, int* w
          * wake_pattern_number, HW should tell,,tbd
          */
         for (i = 0;i < MAX_PATTERN_COUNT;i++) {
-            if (regval & (MGMT_WOL_CTRL_WPI_RWK_PKT_NUMBER << i)) {
+            if (regval & ((u32)MGMT_WOL_CTRL_WPI_RWK_PKT_NUMBER << i)) {
                 *wake_pattern_number = i;
                 break;
             }
@@ -4034,7 +3501,7 @@ static void fxgmac_get_wake_packet_indication(struct fxgmac_pdata* pdata, int* w
     i = 0;
     DbgPrintF(MP_TRACE, "%s - before retrieve, len=%d, len_dw=%d, reg_wpi_ctrl0=%08x.\n",
         __FUNCTION__, data_len, data_len_dw, val_wpi_crtl0);
-    while ((0 == (val_wpi_crtl0 & MGMT_WPI_CTRL0_WPI_OP_DONE)))	{
+    while ((0 == (val_wpi_crtl0 & MGMT_WPI_CTRL0_WPI_OP_DONE))) {
         if (i < data_len_dw) {
             regval = (u32)readreg(pdata->pAdapter, pdata->base_mem + MGMT_WPI_CTRL1_DATA);
             /*dw_wpi_buf[i] = SWAP_BYTES_32(regval);*/
@@ -4065,7 +3532,7 @@ static void fxgmac_get_wake_packet_indication(struct fxgmac_pdata* pdata, int* w
 
     return;
 }
-#endif /* FUXI_PM_WPI_READ_FEATURE_EN */
+#endif /* FXGMAC_PM_WPI_READ_FEATURE_ENABLED */
 
 static int fxgmac_enable_wake_link_change(struct fxgmac_pdata* pdata)
 {
@@ -4085,52 +3552,9 @@ static int fxgmac_disable_wake_link_change(struct fxgmac_pdata* pdata)
     writereg(pdata->pAdapter, regval, pdata->base_mem + WOL_CTL);
     return 0;
 }
-#endif // LINUX/_WIN64/_WIN32
+#endif // FXGMAC_POWER_MANAGEMENT
 
-#ifdef LINUX
-static void fxgmac_config_wol(struct fxgmac_pdata *pdata, int en)
-{
-    /* enable or disable WOL. this function only set wake-up type, and power related configure
-     * will be in other place, see power management.
-     */
-    if (!pdata->hw_feat.rwk) {
-        netdev_err(pdata->netdev, "error configuring WOL - not supported.\n");
-        return;
-    }
-
-    fxgmac_disable_wake_magic_pattern(pdata);
-    fxgmac_disable_wake_pattern(pdata);
-    fxgmac_disable_wake_link_change(pdata);
-
-    if(en) {
-        /* config mac address for rx of magic or ucast */
-        fxgmac_set_mac_address(pdata, (u8*)(pdata->netdev->dev_addr));
-
-        /* Enable Magic packet */
-        if (pdata->expansion.wol & WAKE_MAGIC) {
-            fxgmac_enable_wake_magic_pattern(pdata);
-        }
-
-        /* Enable global unicast packet */
-        if (pdata->expansion.wol & WAKE_UCAST 
-            || pdata->expansion.wol & WAKE_MCAST 
-            || pdata->expansion.wol & WAKE_BCAST 
-            || pdata->expansion.wol & WAKE_ARP) {
-            fxgmac_enable_wake_pattern(pdata);
-        }
-
-        /* Enable ephy link change */
-        if ((FXGMAC_WOL_UPON_EPHY_LINK) && (pdata->expansion.wol & WAKE_PHY)) {
-            fxgmac_enable_wake_link_change(pdata);
-        }
-    }
-    device_set_wakeup_enable(/*pci_dev_to_dev*/(pdata->dev), en);
-
-    DPRINTK("config_wol callout\n");
-}
-#endif
-
-static int  fxgmac_get_ephy_state(struct fxgmac_pdata* pdata)
+static u32  fxgmac_get_ephy_state(struct fxgmac_pdata* pdata)
 {
     u32 value;
     value = readreg(pdata->pAdapter, pdata->base_mem + MGMT_EPHY_CTRL);
@@ -4140,7 +3564,7 @@ static int  fxgmac_get_ephy_state(struct fxgmac_pdata* pdata)
 static void fxgmac_enable_dma_interrupts(struct fxgmac_pdata *pdata)
 {
 #ifndef DPDK
-    unsigned int dma_ch_isr, dma_ch_ier;
+    u32 dma_ch_isr, dma_ch_ier;
     struct fxgmac_channel *channel;
     unsigned int i;
 
@@ -4159,7 +3583,7 @@ static void fxgmac_enable_dma_interrupts(struct fxgmac_pdata *pdata)
         dma_ch_isr = readreg(pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_SR));
         writereg(pdata->pAdapter, dma_ch_isr, FXGMAC_DMA_REG(channel, DMA_CH_SR));
 
-		/* Clear all interrupt enable bits */
+        /* Clear all interrupt enable bits */
         dma_ch_ier = 0;
 
         /* Enable following interrupts
@@ -4218,7 +3642,7 @@ static void fxgmac_enable_dma_interrupts(struct fxgmac_pdata *pdata)
                     DMA_CH_IER_RBUE_LEN,
                     1);
             //2022-04-20 xiaojiang comment
-            //windows driver set the per_channel_irq to be zero, Linux driver also comment this, so comment it directly			
+            //windows driver set the per_channel_irq to be zero, Linux driver also comment this, so comment it directly
             //if (!pdata->per_channel_irq)
                 dma_ch_ier = FXGMAC_SET_REG_BITS(
                         dma_ch_ier,
@@ -4230,47 +3654,52 @@ static void fxgmac_enable_dma_interrupts(struct fxgmac_pdata *pdata)
         writereg(pdata->pAdapter, dma_ch_ier, FXGMAC_DMA_REG(channel, DMA_CH_IER));
     }
 #else
-	struct fxgmac_tx_queue *txq;
-	unsigned int dma_ch_isr, dma_ch_ier;
-	unsigned int i;
+    struct fxgmac_tx_queue *txq;
+    unsigned int dma_ch_isr, dma_ch_ier;
+    unsigned int i;
 
-	for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
-		txq = pdata->expansion.eth_dev->data->tx_queues[i];
+    for (i = 0; i < pdata->expansion.eth_dev->data->nb_tx_queues; i++) {
+        txq = pdata->expansion.eth_dev->data->tx_queues[i];
+        if (!txq) {
+            DPRINTK("Tx queue not setup for port %d\n",
+                pdata->expansion.eth_dev->data->port_id);
+            return;
+        }
 
-		/* Clear all the interrupts which are set */
-		dma_ch_isr = FXGMAC_DMA_IOREAD(txq, DMA_CH_SR);
-		FXGMAC_DMA_IOWRITE(txq, DMA_CH_SR, dma_ch_isr);
+        /* Clear all the interrupts which are set */
+        dma_ch_isr = FXGMAC_DMA_IOREAD(txq, DMA_CH_SR);
+        FXGMAC_DMA_IOWRITE(txq, DMA_CH_SR, dma_ch_isr);
 
-		/* Clear all interrupt enable bits */
-		dma_ch_ier = 0;
+        /* Clear all interrupt enable bits */
+        dma_ch_ier = 0;
 
-		/* Enable following interrupts
-		 *   NIE  - Normal Interrupt Summary Enable
-		 *   AIE  - Abnormal Interrupt Summary Enable
-		 *   FBEE - Fatal Bus Error Enable
-		 */
-		FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, NIE, 1);//0  fx 1
-		FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, AIE, 1);
-		FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, FBEE, 1);
+        /* Enable following interrupts
+         *   NIE  - Normal Interrupt Summary Enable
+         *   AIE  - Abnormal Interrupt Summary Enable
+         *   FBEE - Fatal Bus Error Enable
+         */
+        FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, NIE, 1);//0  fx 1
+        FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, AIE, 1);
+        FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, FBEE, 1);
 
-		/* Enable following Rx interrupts
-		 *   RBUE - Receive Buffer Unavailable Enable
-		 *   RIE  - Receive Interrupt Enable (unless using
-		 *          per channel interrupts in edge triggered
-		 *          mode)
-		 */
-		FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, RBUE, 1);//0 fx 1
-		FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, RIE, 0);// 0 fx 1
+        /* Enable following Rx interrupts
+         *   RBUE - Receive Buffer Unavailable Enable
+         *   RIE  - Receive Interrupt Enable (unless using
+         *          per channel interrupts in edge triggered
+         *          mode)
+         */
+        FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, RBUE, 1);//0 fx 1
+        FXGMAC_SET_BITS(dma_ch_ier, DMA_CH_IER, RIE, 0);// 0 fx 1
 
-		FXGMAC_DMA_IOWRITE(txq, DMA_CH_IER, dma_ch_ier);
-	}
+        FXGMAC_DMA_IOWRITE(txq, DMA_CH_IER, dma_ch_ier);
+    }
 #endif
 }
 
 static void fxgmac_enable_mtl_interrupts(struct fxgmac_pdata *pdata)
 {
-    unsigned int q_count, i;
-    unsigned int mtl_q_isr;
+    unsigned int i;
+    u32 mtl_q_isr, q_count;
 
     q_count = max(pdata->hw_feat.tx_q_cnt, pdata->hw_feat.rx_q_cnt);
     for (i = 0; i < q_count; i++) {
@@ -4285,7 +3714,7 @@ static void fxgmac_enable_mtl_interrupts(struct fxgmac_pdata *pdata)
 
 static void fxgmac_enable_mac_interrupts(struct fxgmac_pdata *pdata)
 {
-    unsigned int mac_ier = 0;
+    u32 mac_ier = 0;
     u32 regval;
 
     /* Enable Timestamp interrupt */
@@ -4294,14 +3723,13 @@ static void fxgmac_enable_mac_interrupts(struct fxgmac_pdata *pdata)
 
     writereg(pdata->pAdapter, mac_ier, pdata->mac_regs + MAC_IER);
 
-    /* Enable all counter interrupts */
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MMC_RIER);
     regval = FXGMAC_SET_REG_BITS(regval, MMC_RIER_ALL_INTERRUPTS_POS,
-                     MMC_RIER_ALL_INTERRUPTS_LEN, 0xffffffff);
+                     MMC_RIER_ALL_INTERRUPTS_LEN, FXGMAC_MMC_IER_ALL_DEFAULT);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MMC_RIER);
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MMC_TIER);
     regval = FXGMAC_SET_REG_BITS(regval, MMC_TIER_ALL_INTERRUPTS_POS,
-                     MMC_TIER_ALL_INTERRUPTS_LEN, 0xffffffff);
+                     MMC_TIER_ALL_INTERRUPTS_LEN, FXGMAC_MMC_IER_ALL_DEFAULT);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MMC_TIER);
 }
 
@@ -4382,22 +3810,13 @@ static int fxgmac_check_phy_link(struct fxgmac_pdata *pdata,
                                       u32 *speed, bool *link_up,
                                       bool link_up_wait_to_complete)
 {
-#if defined(LINUX) || defined(DPDK)
     u16 link_reg = 0;
-
-    //DPRINTK("fxgmac_check_phy_link callin\n");
-
-#ifndef DPDK
-    struct net_device *netdev = pdata->netdev;
-    if (netdev->base_addr) {
-        link_reg = (u16)(* ((u32 *)(netdev->base_addr + MGMT_EPHY_CTRL)));
-#else
     (void) link_up_wait_to_complete;
     if (pdata->base_mem) {
-    	link_reg = (u16)readreg(pdata->pAdapter, pdata->base_mem + MGMT_EPHY_CTRL);
+        link_reg = (u16)readreg(pdata->pAdapter, pdata->base_mem + MGMT_EPHY_CTRL);
 
-    	pdata->phy_duplex = !!(link_reg&0x4);//need check
-#endif
+        pdata->phy_duplex = !!(link_reg&0x4);//need check
+
         /*
         * check register address 0x1004
         * b[6:5]       ephy_pause
@@ -4406,29 +3825,24 @@ static int fxgmac_check_phy_link(struct fxgmac_pdata *pdata,
         * b[1]         ephy_link
         * b[0]         ephy_reset. should be set to 1 before use phy.
         */
+
         *link_up = false;
         if (link_reg & MGMT_EPHY_CTRL_STA_EPHY_RELEASE) {
-            if(link_up) {
+            if (link_up) {
                 *link_up = (link_reg & MGMT_EPHY_CTRL_STA_EPHY_LINKUP) ? true : false;
             }
-            if(speed) *speed = (link_reg & MGMT_EPHY_CTRL_STA_SPEED_MASK) >> MGMT_EPHY_CTRL_STA_SPEED_POS;
-        } else {
-            DPRINTK("fxgmac_check_phy_link ethernet PHY not released.\n");
+            if (speed) *speed = (link_reg & MGMT_EPHY_CTRL_STA_SPEED_MASK) >> MGMT_EPHY_CTRL_STA_SPEED_POS;
+        }
+        else {
+            DPRINTK("fxgmac_check_phy_link ethernet PHY not released link reg %d.\n", link_reg);
             return -1;
         }
     }else {
-        DPRINTK("fxgmac_check_phy_link null base addr err\n");
+        DPRINTK("fxgmac_check_phy_link null base addr err link reg %d\n", link_reg);
         return -1;
     }
-    //DPRINTK("fxgmac_check_phy_link callout, reg=%#x\n", link_reg);
-#else
-    pdata = pdata;
-    speed = speed;
-    link_up = link_up;
-    link_up_wait_to_complete = link_up_wait_to_complete;
-#endif
 
-        return 0;
+    return 0;
 }
 
 static int fxgmac_config_mac_speed(struct fxgmac_pdata *pdata)
@@ -4463,12 +3877,15 @@ static int fxgmac_write_ephy_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32 dat
         busy--;
     }while((regval & MAC_MDIO_ADDRESS_BUSY) && (busy));
 
-    DPRINTK("fxgmac_write_ephy_reg id %d %s, ctrl=0x%08x, data=0x%08x\n", reg_id, (regval & 0x1)?"err" : "ok", regval, data);
-    
-    return (regval & MAC_MDIO_ADDRESS_BUSY) ? -1 : 0; //-1 indicates err
+    DPRINTK("fxgmac_write_ephy_reg id %d,", reg_id);
+    DPRINTK("  %s,", (regval & 0x1)?"err" : "ok");
+    DPRINTK("  ctrl=0x%08x,", regval);
+    DPRINTK("  data=0x%08x\n", data);
+
+    return (regval & MAC_MDIO_ADDRESS_BUSY) ? -ETIMEDOUT : 0; //-1 indicates err
 }
 
-static int fxgmac_read_ephy_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32*data)
+static int fxgmac_read_ephy_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32 __far* data)
 {
     u32 regval = 0, regret;
     u32 mdioctrl = reg_id * 0x10000 + 0x800020d;
@@ -4483,13 +3900,20 @@ static int fxgmac_read_ephy_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32*data
 
     if (0 == (regval & MAC_MDIO_ADDRESS_BUSY)) {
         regret = readreg(pdata->pAdapter, pdata->mac_regs + MAC_MDIO_DATA);
-        if(data) *data = regret;
-        //DPRINTK("fxgmac_read_ephy_reg ok, reg=0x%02x, ctrl=0x%08x, data=0x%08x\n", reg_id, regval, *data);
-        return regret;
+        if(data)  {
+                *data = regret;
+                //DPRINTK("fxgmac_read_ephy_reg ok, reg=0x%02x, ctrl=0x%08x, data=0x%08x\n", reg_id, regval, *data);
+                return 0;
+        }else {
+                return -ENOBUFS;
+        }
     }
 
-    DPRINTK("fxgmac_read_ephy_reg id=0x%02x err, busy=%d, ctrl=0x%08x.\n", reg_id, busy, regval);
-    return -1;
+    DPRINTK("fxgmac_read_ephy_reg id=0x%02x err,", reg_id);
+    DPRINTK("  busy=%d,", busy);
+    DPRINTK("  ctrl=0x%08x\n", regval);
+
+    return -ETIMEDOUT;
 }
 
 static int fxgmac_write_ephy_mmd_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32 mmd, u32 data)
@@ -4507,12 +3931,17 @@ static int fxgmac_write_ephy_mmd_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32
         busy--;
     } while ((regval & MAC_MDIO_ADDRESS_BUSY) && (busy));
 
-    DPRINTK("fxgmac_write_ephy_mmd_reg id %d mmd %d %s, ctrl=0x%08x, data=0x%08x\n", reg_id, mmd, (regval & 0x1) ? "err" : "ok", regval, data);
+    DPRINTK("fxgmac_write_ephy_mmd_reg id %d,", reg_id);
+    DPRINTK("  mmd %d,", mmd);
+    DPRINTK("  %s,", (regval & 0x1) ? "err" : "ok");
+    DPRINTK("  ctrl=0x%08x,", regval);
+    DPRINTK("  data=0x%08x\n", data);
     //DbgPrintF(MP_TRACE, "fxgmac_write_ephy_mmd_reg id %d %s, ctrl=0x%08x, data=0x%08x busy %d", reg_id, (regval & 0x1) ? "err" : "ok", regval, data, busy);
 
     return (regval & MAC_MDIO_ADDRESS_BUSY) ? -1 : 0; //-1 indicates err
 }
 
+/*
 #if !defined(LINUX) && !defined(DPDK)
 static int fxgmac_read_ephy_mmd_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32 mmd, u32* data)
 {
@@ -4541,17 +3970,18 @@ static int fxgmac_read_ephy_mmd_reg(struct fxgmac_pdata* pdata, u32 reg_id, u32 
     return -1;
 }
 #endif
+*/
 
 static void fxgmac_config_flow_control(struct fxgmac_pdata* pdata)
 {
-#ifndef UEFI
+#ifndef FXGMAC_NOT_REPORT_PHY_FC_CAPABILITY
     u32 regval = 0;
 #endif
 
     fxgmac_config_tx_flow_control(pdata);
     fxgmac_config_rx_flow_control(pdata);
 
-#ifndef UEFI
+#ifndef FXGMAC_NOT_REPORT_PHY_FC_CAPABILITY
     fxgmac_read_ephy_reg(pdata, REG_MII_ADVERTISE, &regval);
     //set auto negotiation advertisement pause ability
     if (pdata->tx_pause || pdata->rx_pause) {
@@ -4571,17 +4001,19 @@ static void fxgmac_config_flow_control(struct fxgmac_pdata* pdata)
 
 static int fxgmac_set_ephy_autoneg_advertise(struct fxgmac_pdata* pdata, struct fxphy_ag_adv phy_ag_adv)
 {
-    u32 regval = 0, ret = 0;
+    u32 regval = 0;
+    int ret = 0;
 
-    if (phy_ag_adv.auto_neg_en)	{
+    if (phy_ag_adv.auto_neg_en) {
         fxgmac_read_ephy_reg(pdata, REG_MII_BMCR, &regval);
         regval = FXGMAC_SET_REG_BITS(regval, PHY_CR_AUTOENG_POS, PHY_CR_AUTOENG_LEN, 1);
-        ret |= fxgmac_write_ephy_reg(pdata, REG_MII_BMCR, regval);
     } else {
         fxgmac_read_ephy_reg(pdata, REG_MII_BMCR, &regval);
         regval = FXGMAC_SET_REG_BITS(regval, PHY_CR_AUTOENG_POS, PHY_CR_AUTOENG_LEN, 0);
-        ret |= fxgmac_write_ephy_reg(pdata, REG_MII_BMCR, regval);
     }
+    ret = fxgmac_write_ephy_reg(pdata, REG_MII_BMCR, regval);
+    if (ret < 0)
+        return ret;
 
     fxgmac_read_ephy_reg(pdata, REG_MII_CTRL1000, &regval);
     if (phy_ag_adv.full_1000m) {
@@ -4594,7 +4026,9 @@ static int fxgmac_set_ephy_autoneg_advertise(struct fxgmac_pdata* pdata, struct 
     } else {
         regval = FXGMAC_SET_REG_BITS(regval, PHY_MII_CTRL1000_1000HALF_POS, PHY_MII_CTRL1000_1000HALF_LEN, 0);
     }
-    ret |= fxgmac_write_ephy_reg(pdata, REG_MII_CTRL1000, regval);
+    ret = fxgmac_write_ephy_reg(pdata, REG_MII_CTRL1000, regval);
+    if (ret < 0)
+        return ret;
 
     fxgmac_read_ephy_reg(pdata, REG_MII_ADVERTISE, &regval);
 
@@ -4619,12 +4053,15 @@ static int fxgmac_set_ephy_autoneg_advertise(struct fxgmac_pdata* pdata, struct 
         regval = FXGMAC_SET_REG_BITS(regval, PHY_MII_ADVERTISE_10HALF_POS, PHY_MII_ADVERTISE_10HALF_LEN, 0);
     }
 
-    ret |= fxgmac_write_ephy_reg(pdata, REG_MII_ADVERTISE, regval);
+    ret = fxgmac_write_ephy_reg(pdata, REG_MII_ADVERTISE, regval);
+    if (ret < 0)
+        return ret;
+
     //after change the auto negotiation advertisement need to soft reset
     fxgmac_read_ephy_reg(pdata, REG_MII_BMCR, &regval);
     regval = FXGMAC_SET_REG_BITS(regval, PHY_CR_RESET_POS, PHY_CR_RESET_LEN, 1);
-    ret |= fxgmac_write_ephy_reg(pdata, REG_MII_BMCR, regval);
-        
+    ret = fxgmac_write_ephy_reg(pdata, REG_MII_BMCR, regval);
+
     return ret;
 }
 
@@ -4752,7 +4189,7 @@ void fxgmac_release_phy(struct fxgmac_pdata* pdata)
     value = readreg(pdata->pAdapter, pdata->base_mem + MGMT_EPHY_CTRL);
     DBGPRINT(MP_LOUD, ("0x1004: 0x%x\n", value));
 #ifdef AISC_MODE
-    fxgmac_read_ephy_reg(pdata, REG_MII_SPEC_CTRL, &value);//	read  phy specific control
+    fxgmac_read_ephy_reg(pdata, REG_MII_SPEC_CTRL, &value);// read  phy specific control
     value = FXGMAC_SET_REG_BITS(value, PHY_MII_SPEC_CTRL_CRS_ON_POS, PHY_MII_SPEC_CTRL_CRS_ON_LEN, 1);//set on crs on
     fxgmac_write_ephy_reg(pdata, REG_MII_SPEC_CTRL, value);// phy specific control set on crs on
 
@@ -4776,9 +4213,16 @@ void fxgmac_release_phy(struct fxgmac_pdata* pdata)
     //led index use bit0~bit5
     value = FXGMAC_GET_REG_BITS(value, EFUSE_LED_POS, EFUSE_LED_LEN);
     fxgmac_write_ephy_reg(pdata, REG_MII_EXT_ADDR, REG_MII_EXT_ANALOG_CFG2);
-    fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, REG_MII_EXT_ANALOG_CFG2_LED_VALUE);
-    fxgmac_write_ephy_reg(pdata, REG_MII_EXT_ADDR, REG_MII_EXT_ANALOG_CFG8);
-    fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, REG_MII_EXT_ANALOG_CFG8_LED_VALUE);
+    fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, REG_MII_EXT_ANALOG_CFG2_VALUE);
+
+    cfg_r32(pdata, REG_PCI_SUB_VENDOR_ID, &value);
+    if (AISTONEID_137D1D05_ADJUST_SI == value) {
+        fxgmac_write_ephy_reg(pdata, REG_MII_EXT_ADDR, REG_MII_EXT_ANALOG_CFG8);
+        fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, REG_MII_EXT_ANALOG_CFG8_137D1D05_VALUE);
+    } else {
+        fxgmac_write_ephy_reg(pdata, REG_MII_EXT_ADDR, REG_MII_EXT_ANALOG_CFG8);
+        fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, REG_MII_EXT_ANALOG_CFG8_VALUE);
+    }
 
     if (EFUSE_LED_COMMON_SOLUTION != value) {
         fxgmac_write_ephy_reg(pdata, REG_MII_EXT_ADDR, REG_MII_EXT_COMMON_LED0_CFG);
@@ -4843,7 +4287,6 @@ void fxgmac_release_phy(struct fxgmac_pdata* pdata)
 #endif
 }
 
-#if !defined(UEFI)
 static void fxgmac_enable_phy_check(struct fxgmac_pdata* pdata)
 {
     u32 value = 0;
@@ -4913,7 +4356,6 @@ static void fxgmac_enable_phy_sleep(struct fxgmac_pdata* pdata)
     fxgmac_write_ephy_reg(pdata, REG_MII_EXT_ADDR, REG_MII_EXT_SLEEP_CONTROL_REG);
     fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, value);
 }
-#endif
 
 static void fxgmac_close_phy_led(struct fxgmac_pdata* pdata)
 {
@@ -5016,206 +4458,11 @@ static void fxgmac_config_led_under_disable(struct fxgmac_pdata* pdata)
     }
 }
 
-#ifdef LINUX
-extern void fxgmac_diag_get_rx_info(struct fxgmac_channel *channel);
-
-static int fxgmac_dev_read(struct fxgmac_channel *channel)
-{
-    struct fxgmac_pdata *pdata = channel->pdata;
-    struct fxgmac_ring *ring = channel->rx_ring;
-    struct net_device *netdev = pdata->netdev;
-    struct fxgmac_desc_data *desc_data;
-    struct fxgmac_dma_desc *dma_desc;
-    struct fxgmac_pkt_info *pkt_info;
-    unsigned int err, etlt, l34t;
-
-    //unsigned int i;
-    static unsigned int cnt_incomplete = 0;
-
-    desc_data = FXGMAC_GET_DESC_DATA(ring, ring->cur);
-    dma_desc = desc_data->dma_desc;
-    pkt_info = &ring->pkt_info;
-
-    /* Check for data availability */
-    if (FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                   RX_NORMAL_DESC3_OWN_POS,
-                   RX_NORMAL_DESC3_OWN_LEN))
-    {
-        return 1;
-    }
-
-    /* Make sure descriptor fields are read after reading the OWN bit */
-    dma_rmb();
-
-    if (netif_msg_rx_status(pdata))
-        fxgmac_dump_rx_desc(pdata, ring, ring->cur);
-
-    if (FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                   RX_NORMAL_DESC3_CTXT_POS,
-                   RX_NORMAL_DESC3_CTXT_LEN)) {
-        /* Timestamp Context Descriptor */
-        fxgmac_get_rx_tstamp(pkt_info, dma_desc);
-
-        pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                    pkt_info->attributes,
-                    RX_PACKET_ATTRIBUTES_CONTEXT_POS,
-                    RX_PACKET_ATTRIBUTES_CONTEXT_LEN,
-                    1);
-        pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                pkt_info->attributes,
-                RX_PACKET_ATTRIBUTES_CONTEXT_NEXT_POS,
-                RX_PACKET_ATTRIBUTES_CONTEXT_NEXT_LEN,
-                0);
-        if(netif_msg_rx_status(pdata)) DPRINTK("dev_read context desc,ch=%s\n",channel->name);
-        return 0;
-    }
-
-    /* Normal Descriptor, be sure Context Descriptor bit is off */
-    pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                pkt_info->attributes,
-                RX_PACKET_ATTRIBUTES_CONTEXT_POS,
-                RX_PACKET_ATTRIBUTES_CONTEXT_LEN,
-                0);
-
-    /* Indicate if a Context Descriptor is next */
-#if 0
-    if (FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                   RX_NORMAL_DESC3_CDA_POS,
-                   RX_NORMAL_DESC3_CDA_LEN))
-        pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                pkt_info->attributes,
-                RX_PACKET_ATTRIBUTES_CONTEXT_NEXT_POS,
-                RX_PACKET_ATTRIBUTES_CONTEXT_NEXT_LEN,
-                1);
-#endif
-    /* Get the header length */
-    if (FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                   RX_NORMAL_DESC3_FD_POS,
-                   RX_NORMAL_DESC3_FD_LEN)) {
-        desc_data->rx.hdr_len = FXGMAC_GET_REG_BITS_LE(dma_desc->desc2,
-                            RX_NORMAL_DESC2_HL_POS,
-                            RX_NORMAL_DESC2_HL_LEN);
-        if (desc_data->rx.hdr_len)
-            pdata->stats.rx_split_header_packets++;
-    }
-    l34t = 0;
-
-#if 0 //(FXGMAC_RSS_FEATURE_ENABLED) //20210608
-    /* Get the RSS hash */
-    if (FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                   RX_NORMAL_DESC3_RSV_POS,
-                   RX_NORMAL_DESC3_RSV_LEN)) {
-        pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                pkt_info->attributes,
-                RX_PACKET_ATTRIBUTES_RSS_HASH_POS,
-                RX_PACKET_ATTRIBUTES_RSS_HASH_LEN,
-                1);
-
-        pkt_info->rss_hash = le32_to_cpu(dma_desc->desc1);
-
-        l34t = FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                          RX_NORMAL_DESC3_L34T_POS,
-                      RX_NORMAL_DESC3_L34T_LEN);
-        switch (l34t) {
-        case RX_DESC3_L34T_IPV4_TCP:
-        case RX_DESC3_L34T_IPV4_UDP:
-        case RX_DESC3_L34T_IPV6_TCP:
-        case RX_DESC3_L34T_IPV6_UDP:
-            pkt_info->rss_hash_type = PKT_HASH_TYPE_L4;
-            break;
-        default:
-            pkt_info->rss_hash_type = PKT_HASH_TYPE_L3;
-        }
-    }
-#endif
-    /* Get the pkt_info length */
-    desc_data->rx.len = FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                    RX_NORMAL_DESC3_PL_POS,
-                    RX_NORMAL_DESC3_PL_LEN);
-    //DPRINTK("dev_read upon FD=1, pkt_len=%u\n",desc_data->rx.len);
-
-    if (!FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                    RX_NORMAL_DESC3_LD_POS,
-                    RX_NORMAL_DESC3_LD_LEN)) {
-        /* Not all the data has been transferred for this pkt_info */
-        pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                pkt_info->attributes,
-                RX_PACKET_ATTRIBUTES_INCOMPLETE_POS,
-                RX_PACKET_ATTRIBUTES_INCOMPLETE_LEN,
-                1);
-        cnt_incomplete++;
-        if ((cnt_incomplete < 2) && netif_msg_rx_status(pdata)) 
-            DPRINTK("dev_read NOT last desc,pkt incomplete yet,%u\n", cnt_incomplete);
-
-        return 0;
-    } 
-    if ((cnt_incomplete) && netif_msg_rx_status(pdata))
-        DPRINTK("dev_read rx back to normal and incomplete cnt=%u\n", cnt_incomplete);
-    cnt_incomplete = 0; //when back to normal, reset cnt
-
-    /* This is the last of the data for this pkt_info */
-    pkt_info->attributes = FXGMAC_SET_REG_BITS(
-            pkt_info->attributes,
-            RX_PACKET_ATTRIBUTES_INCOMPLETE_POS,
-            RX_PACKET_ATTRIBUTES_INCOMPLETE_LEN,
-            0);
-
-    /* Set checksum done indicator as appropriate */
-    if (netdev->features & NETIF_F_RXCSUM)
-        pkt_info->attributes = FXGMAC_SET_REG_BITS(
-                pkt_info->attributes,
-                RX_PACKET_ATTRIBUTES_CSUM_DONE_POS,
-                RX_PACKET_ATTRIBUTES_CSUM_DONE_LEN,
-                1);
-
-    /* Check for errors (only valid in last descriptor) */
-    err = FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                     RX_NORMAL_DESC3_ES_POS,
-                     RX_NORMAL_DESC3_ES_LEN);
-    etlt = FXGMAC_GET_REG_BITS_LE(dma_desc->desc3,
-                      RX_NORMAL_DESC3_ETLT_POS,
-                      RX_NORMAL_DESC3_ETLT_LEN);
-    //netif_dbg(pdata, rx_status, netdev, "err=%u, etlt=%#x\n", err, etlt);
-    if((err) && netif_msg_rx_status(pdata)) {
-        DPRINTK("dev_read:head_len=%u,pkt_len=%u,err=%u, etlt=%#x,desc2=0x%08x,desc3=0x%08x\n",desc_data->rx.hdr_len, desc_data->rx.len, err, 
-                etlt, dma_desc->desc2, dma_desc->desc3);
-    }
-
-	if (!err || !etlt) {
-		/* No error if err is 0 or etlt is 0 */
-		if ((etlt == 0x4 /*yzhang changed to 0x4, 0x09*/) &&
-		    (netdev->features & NETIF_F_HW_VLAN_CTAG_RX)) {
-			pkt_info->attributes = FXGMAC_SET_REG_BITS(
-				pkt_info->attributes,
-				RX_PACKET_ATTRIBUTES_VLAN_CTAG_POS,
-				RX_PACKET_ATTRIBUTES_VLAN_CTAG_LEN, 1);
-			pkt_info->vlan_ctag =
-				FXGMAC_GET_REG_BITS_LE(dma_desc->desc0,
-						       RX_NORMAL_DESC0_OVT_POS,
-						       RX_NORMAL_DESC0_OVT_LEN);
-			netif_dbg(pdata, rx_status, netdev, "vlan-ctag=%#06x\n",
-				  pkt_info->vlan_ctag);
-		}
-	} else {
-		if (etlt == 0x05 || etlt == 0x06)
-			pkt_info->attributes = FXGMAC_SET_REG_BITS(
-				pkt_info->attributes,
-				RX_PACKET_ATTRIBUTES_CSUM_DONE_POS,
-				RX_PACKET_ATTRIBUTES_CSUM_DONE_LEN, 0);
-		else
-			pkt_info->errors = FXGMAC_SET_REG_BITS(
-				pkt_info->errors, RX_PACKET_ERRORS_FRAME_POS,
-				RX_PACKET_ERRORS_FRAME_LEN, 1);
-	}
-
-    return 0;
-}
-#endif
-
 static int fxgmac_enable_int(struct fxgmac_channel *channel,
                  enum fxgmac_int int_id)
 {
-	unsigned int dma_ch_ier;
+
+    u32 dma_ch_ier;
 
     dma_ch_ier = readreg(channel->pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_IER));
 
@@ -5274,14 +4521,14 @@ static int fxgmac_enable_int(struct fxgmac_channel *channel,
     }
 
     writereg(channel->pdata->pAdapter, dma_ch_ier, FXGMAC_DMA_REG(channel, DMA_CH_IER));
-	
+
     return 0;
 }
 
 static int fxgmac_disable_int(struct fxgmac_channel *channel,
                   enum fxgmac_int int_id)
 {
-    unsigned int dma_ch_ier;
+    u32 dma_ch_ier;
 
     dma_ch_ier = readreg(channel->pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_IER));
 
@@ -5344,11 +4591,10 @@ static int fxgmac_disable_int(struct fxgmac_channel *channel,
 
     return 0;
 }
-                  
-#ifdef LINUX
+
 static int fxgmac_dismiss_DMA_int(struct fxgmac_channel *channel, int int_id)
 {
-    unsigned int dma_ch_ier;
+    u32 dma_ch_ier;
 
     int_id = int_id;
     dma_ch_ier = readreg(channel->pdata->pAdapter, FXGMAC_DMA_REG(channel, DMA_CH_SR /*1160*/));
@@ -5359,8 +4605,8 @@ static int fxgmac_dismiss_DMA_int(struct fxgmac_channel *channel, int int_id)
 
 static void fxgmac_dismiss_MTL_Q_int(struct fxgmac_pdata *pdata)
 {
-    unsigned int q_count, i;
-    unsigned int mtl_q_isr;
+    unsigned int i;
+    u32 mtl_q_isr, q_count;
 
     q_count = max(pdata->hw_feat.tx_q_cnt, pdata->hw_feat.rx_q_cnt);
     for (i = 0; i < q_count; i++) {
@@ -5378,6 +4624,8 @@ static int fxgmac_dismiss_MAC_int(struct fxgmac_pdata *pdata)
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_ISR);
     /* MAC tx/rx error interrupts in 0xb8 */
     regErrVal = readreg(pdata->pAdapter, pdata->mac_regs + MAC_TX_RX_STA);
+    regval = regval;
+    regErrVal = regErrVal;
 #if 0 //write clear
     if(FXGMAC_GET_REG_BITS(readreg(pdata->mac_regs + MAC_CSR_SW_CTRL),
                             0/*rcwe*/,
@@ -5396,6 +4644,7 @@ static int fxgmac_dismiss_MAC_PMT_int(struct fxgmac_pdata *pdata)
 
     /* MAC PMT interrupts in 0xc0 */
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_PMT_STA);
+    regval = regval;
 #if 0 //write clear
     if(FXGMAC_GET_REG_BITS(readreg(pdata->mac_regs + MAC_CSR_SW_CTRL),
                             0/*rcwe*/,
@@ -5403,7 +4652,7 @@ static int fxgmac_dismiss_MAC_PMT_int(struct fxgmac_pdata *pdata)
     {
         writereg(regval, pdata->mac_regs + MAC_PMT_STA);
     }
-    
+
 #endif
     return 0;
 }
@@ -5414,6 +4663,7 @@ static int fxgmac_dismiss_MAC_LPI_int(struct fxgmac_pdata *pdata)
 
     /* MAC PMT interrupts in 0xc0 */
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_LPI_STA);
+    regval = regval;
 #if 0 //write clear
     if(FXGMAC_GET_REG_BITS(readreg(pdata->mac_regs + MAC_CSR_SW_CTRL),
                             0/*rcwe*/,
@@ -5421,7 +4671,7 @@ static int fxgmac_dismiss_MAC_LPI_int(struct fxgmac_pdata *pdata)
     {
         writereg(regval, pdata->mac_regs + MAC_LPI_STA);
     }
-    
+
 #endif
     return 0;
 }
@@ -5440,16 +4690,11 @@ static int fxgmac_dismiss_MAC_DBG_int(struct fxgmac_pdata *pdata)
 #endif
     return 0;
 }
-#endif
 
-int fxgmac_dismiss_all_int(struct fxgmac_pdata *pdata)
+static int fxgmac_dismiss_all_int(struct fxgmac_pdata *pdata)
 {
-#ifdef LINUX
     struct fxgmac_channel *channel;
-    unsigned int i, regval;
-    struct net_device *netdev = pdata->netdev;
-
-    if (netif_msg_drv(pdata)) { DPRINTK("fxgmac_dismiss_all_int callin\n"); }
+    unsigned int i;
 
     channel = pdata->channel_head;
     for (i = 0; i < pdata->channel_count; i++, channel++) {
@@ -5461,34 +4706,29 @@ int fxgmac_dismiss_all_int(struct fxgmac_pdata *pdata)
     fxgmac_dismiss_MAC_LPI_int(pdata);
     fxgmac_dismiss_MAC_DBG_int(pdata);
 
-    //control module int to PCIe slot
-    if (netdev->base_addr) {
-        regval = (unsigned int)(* ((u32 *)(netdev->base_addr + MGMT_INT_CTRL0)));
-    }
-#else
-    pdata = pdata;
-#endif
+    if (netif_msg_drv(pdata)) { DPRINTK("fxgmac_dismiss_all_int callin %d\n", i); }
+
     return 0;
 }
 
 static void fxgmac_set_interrupt_moderation(struct fxgmac_pdata* pdata)
 {
     u32 value = 0, time;
-#if defined (UEFI)
-    pdata->intr_mod_timer = INT_MOD_IN_US;
-#elif defined (_WIN32) || defined (_WIN64)
+#if defined(FXGMAC_INTERRUPT_MODERATION_EXTERN)
     // the Windows driver initializes it somewhere else
+    pdata->intr_mod_timer = pdata->intr_mod_timer;
 #else
     pdata->intr_mod_timer = INT_MOD_IN_US;
 #endif
 
-    time = (pdata->intr_mod) ? pdata->intr_mod_timer : 0;
-#ifdef LINUX
+#if defined(FXGMAC_INTERRUPT_TX_INTERVAL)
     time = (pdata->intr_mod) ? pdata->tx_usecs : 0;
+#else
+    time = (pdata->intr_mod) ? pdata->intr_mod_timer : 0;
 #endif
     value = FXGMAC_SET_REG_BITS(value, INT_MOD_TX_POS, INT_MOD_TX_LEN, time);
 
-#ifdef LINUX
+#if defined(FXGMAC_INTERRUPT_RX_INTERVAL)
     time = (pdata->intr_mod) ? pdata->rx_usecs : 0;
 #endif
 
@@ -5511,10 +4751,11 @@ static  void  fxgmac_disable_msix_interrupt(struct fxgmac_pdata* pdata)
         writereg(pdata->pAdapter, 0x1, pdata->base_mem + MSIX_TBL_BASE_ADDR + MSIX_TBL_MASK_OFFSET + intid * 16);
     }
 }
-static void  fxgmac_enable_msix_rxtxphyinterrupt(struct fxgmac_pdata* pdata)
+static int  fxgmac_enable_msix_rxtxphyinterrupt(struct fxgmac_pdata* pdata)
 {
     u32                       intid, regval = 0;
-#if !(FUXI_EPHY_INTERRUPT_D0_OFF)
+    int                        ret = 0;
+#if !(FXGMAC_EPHY_INTERRUPT_D0_OFF)
     struct fxgmac_hw_ops* hw_ops = &pdata->hw_ops;
 #endif
 
@@ -5522,12 +4763,16 @@ static void  fxgmac_enable_msix_rxtxphyinterrupt(struct fxgmac_pdata* pdata)
         writereg(pdata->pAdapter, 0, pdata->base_mem + MSIX_TBL_BASE_ADDR + MSIX_TBL_MASK_OFFSET + intid * 16);
     }
     writereg(pdata->pAdapter, 0, pdata->base_mem + MSIX_TBL_BASE_ADDR + MSIX_TBL_MASK_OFFSET + MSI_ID_PHY_OTHER * 16);
-#if !(FUXI_EPHY_INTERRUPT_D0_OFF)
+#if !(FXGMAC_EPHY_INTERRUPT_D0_OFF)
     hw_ops->read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);//  clear  phy interrupt
     regval = FXGMAC_SET_REG_BITS(0, PHY_INT_MASK_LINK_UP_POS, PHY_INT_MASK_LINK_UP_LEN, 1);
     regval = FXGMAC_SET_REG_BITS(regval, PHY_INT_MASK_LINK_DOWN_POS, PHY_INT_MASK_LINK_DOWN_LEN, 1);
-    hw_ops->write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt    ASIC bit10 linkup  bit11 linkdown 
+    ret = hw_ops->write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt    ASIC bit10 linkup  bit11 linkdown
+    return ret;
+#else
+    return 0;
 #endif
+
 }
 static void  fxgmac_enable_msix_one_interrupt(struct fxgmac_pdata* pdata,u32 intid)
 {
@@ -5563,7 +4808,8 @@ static int fxgmac_flush_tx_queues(struct fxgmac_pdata *pdata)
         regval = FXGMAC_SET_REG_BITS(regval, MTL_Q_TQOMR_FTQ_POS,
                          MTL_Q_TQOMR_FTQ_LEN, 1);
         writereg(pdata->pAdapter, regval, FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR));
-        DPRINTK("fxgmac_flush_tx_queues, reg=0x%p, val=0x%08x\n", FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR), regval);
+        DPRINTK("fxgmac_flush_tx_queues, reg=0x%p,", FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR));
+        DPRINTK(" val=0x%08x\n", regval);
     }
 
     //2022-04-20 xiaojiang comment
@@ -5594,7 +4840,8 @@ static int fxgmac_flush_tx_queues(struct fxgmac_pdata *pdata)
                              MTL_Q_TQOMR_FTQ_LEN);
 
         } while (--count && regval);
-        DPRINTK("fxgmac_flush_tx_queues wait... reg=0x%p, val=0x%08x\n", FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR), regval);
+        DPRINTK("fxgmac_flush_tx_queues wait... reg=0x%p,", FXGMAC_MTL_REG(pdata, i, MTL_Q_TQOMR));
+        DPRINTK(" ... val=0x%08x\n", regval);
         if (regval) {/*(!count)*/
             return -EBUSY;
         }
@@ -5606,11 +4853,18 @@ static int fxgmac_flush_tx_queues(struct fxgmac_pdata *pdata)
 static void fxgmac_config_dma_bus(struct fxgmac_pdata *pdata)
 {
     u32 regval;
-#if 1//set no fix burst length
+    //set no fix burst length
     regval = readreg(pdata->pAdapter, pdata->mac_regs + DMA_SBMR);
     /* Set enhanced addressing mode */
     regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_EAME_POS,
         DMA_SBMR_EAME_LEN, 1);
+
+    /* Out standing read/write requests*/
+    regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_RD_OSR_LMT_POS,
+        DMA_SBMR_RD_OSR_LMT_LEN, 0x7);
+    regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_WR_OSR_LMT_POS,
+        DMA_SBMR_WR_OSR_LMT_LEN, 0x7);
+
     /* Set the System Bus mode */
     regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_FB_POS,
         DMA_SBMR_FB_LEN, 0);
@@ -5623,24 +4877,12 @@ static void fxgmac_config_dma_bus(struct fxgmac_pdata *pdata)
     regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_BLEN_32_POS,
         DMA_SBMR_BLEN_32_LEN, 1);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + DMA_SBMR);
-
-#else
-    regval = readreg(pdata->mac_regs + DMA_SBMR);
-    /* Set enhanced addressing mode */
-    regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_EAME_POS,
-                     DMA_SBMR_EAME_LEN, 1);
-    /* Set the System Bus mode */
-    regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_FB_POS,
-                     DMA_SBMR_FB_LEN, 1);
-    regval = FXGMAC_SET_REG_BITS(regval, DMA_SBMR_BLEN_256_POS,
-                     DMA_SBMR_BLEN_256_LEN, 1);
-    writereg(regval, pdata->mac_regs + DMA_SBMR);
-#endif
 }
 
 static void fxgmac_legacy_link_speed_setting(struct fxgmac_pdata* pdata)
 {
-    unsigned int i = 0, regval = 0;
+    unsigned int i = 0;
+    u32 regval = 0;
 
     fxgmac_phy_config(pdata);
     for (i = 0, regval = fxgmac_get_ephy_state(pdata);
@@ -5652,85 +4894,103 @@ static void fxgmac_legacy_link_speed_setting(struct fxgmac_pdata* pdata)
     fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL); // clear  phy interrupt.
 }
 
+#if defined(FXGMAC_FIX_SHUT_DOWN_ISSUE)
+static void fxgmac_link_speed_down_fix_shutdown_issue(struct fxgmac_pdata* pdata)
+{
+    LONGLONG tick_interval;
+    ULONG tick_inc;
+    LARGE_INTEGER tick_count;
+    unsigned int i = 0;
+    unsigned int regval = 0;
+    if ((ULONG)pdata->phy_speed != ((PMP_ADAPTER)pdata->pAdapter)->usLinkSpeed)
+    {
+        DbgPrintF(MP_TRACE, "%s change phy speed", __FUNCTION__);
+        pdata->phy_speed = ((PMP_ADAPTER)pdata->pAdapter)->usLinkSpeed;
+
+        if (((PMP_ADAPTER)pdata->pAdapter)->RegParameter.LinkChgWol)
+        {
+            fxgmac_phy_config(pdata);
+            //sleep fixed value(6s)
+            for (i = 0; i < PHY_LINK_TIMEOUT; i++)
+            {
+                usleep_range_ex(pdata->pAdapter, 2000, 2000);
+            }
+
+            fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL); // clear  phy interrupt.
+        }
+        else
+        {
+            regval = fxgmac_get_ephy_state(pdata);
+            KeQueryTickCount(&tick_count);
+            tick_inc = KeQueryTimeIncrement();
+            tick_interval = tick_count.QuadPart - ((PMP_ADAPTER)pdata->pAdapter)->D0_entry_tick_count.QuadPart;
+            tick_interval *= tick_inc;
+            tick_interval /= 10;
+
+            /*DbgPrintF(MP_TRACE, "base tick %lld", ((PMP_ADAPTER)pdata->pAdapter)->D0_entry_tick_count.QuadPart);
+            DbgPrintF(MP_TRACE, "current tick %lld", tick_count.QuadPart);
+            DbgPrintF(MP_TRACE, "tick inc is %u", tick_inc);
+            DbgPrintF(MP_TRACE, "tick_interval is %lld", tick_interval);
+            DbgPrintF(MP_TRACE, "regval is 0x%x", regval);*/
+            if (((regval & MGMT_EPHY_CTRL_STA_EPHY_RELEASE) && (regval & MGMT_EPHY_CTRL_STA_EPHY_LINKUP))
+               || ((regval & MGMT_EPHY_CTRL_STA_EPHY_RELEASE) && !(regval & MGMT_EPHY_CTRL_STA_EPHY_LINKUP) && (tick_interval < RESUME_MAX_TIME))
+               )
+           {
+               fxgmac_legacy_link_speed_setting(pdata);
+           }
+        }
+    }
+}
+#endif
+
 static void fxgmac_pre_powerdown(struct fxgmac_pdata* pdata, bool phyloopback)
 {
-    unsigned int regval = 0;
+    u32 regval = 0;
+    int speed = SPEED_10;
+#ifdef FXGMAC_LINK_SPEED_CHECK_PHY_LINK
+    int link;
+#endif
+    speed = speed;
 
     fxgmac_disable_rx(pdata);
 
     /* HERE, WE NEED TO CONSIDER PHY CONFIG...TBD */
-    DPRINTK("fxgmac_config_powerdown, phy and mac status update\n");
+    DPRINTK("fxgmac_config_powerdown, phy and mac status update speed %d\n", speed);
     //2022-11-09 xiaojiang comment
     //for phy cable loopback,it can't configure phy speed, it will cause os resume again by link change although it has finished speed setting,
     if (!phyloopback) {
-
-#ifndef LINUX
-#if defined(UEFI)
-#elif defined(DPDK)
-    (void) i;
-#elif defined(_WIN32) || defined(_WIN64)
-        LONGLONG tick_interval;
-        ULONG tick_inc;
-        LARGE_INTEGER tick_count;
-        unsigned int i = 0;
-        if ((ULONG)pdata->phy_speed != ((PMP_ADAPTER)pdata->pAdapter)->usLinkSpeed)
-        {
-            DbgPrintF(MP_TRACE, "%s change phy speed", __FUNCTION__);
-            
-            if (((PMP_ADAPTER)pdata->pAdapter)->RegParameter.LinkChgWol)
-            {
-                fxgmac_phy_config(pdata);
-                //sleep fixed value(6s)
-                for (i = 0; i < PHY_LINK_TIMEOUT; i++)
-                {
-                    usleep_range_ex(pdata->pAdapter, 2000, 2000);
-                }
-
-                fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL); // clear  phy interrupt.
+        fxgmac_read_ephy_reg(pdata, REG_MII_LPA, &regval);
+        if (!FXGMAC_GET_REG_BITS(regval, PHY_MII_LINK_PARNTNER_10FULL_POS, PHY_MII_LINK_PARNTNER_10FULL_LEN)
+            && !FXGMAC_GET_REG_BITS(regval, PHY_MII_LINK_PARNTNER_10HALF_POS, PHY_MII_LINK_PARNTNER_10HALF_LEN)) {
+#if defined(FXGMAC_LINK_SPEED_NOT_USE_LOCAL_VARIABLE)
+            if (SPEED_10 == ((PMP_ADAPTER)pdata->pAdapter)->usLinkSpeed) {
+                ((PMP_ADAPTER)pdata->pAdapter)->usLinkSpeed = SPEED_100;
             }
-            else
-            {
-                regval = fxgmac_get_ephy_state(pdata);
-                KeQueryTickCount(&tick_count);
-                tick_inc = KeQueryTimeIncrement();
-                tick_interval = tick_count.QuadPart - ((PMP_ADAPTER)pdata->pAdapter)->D0_entry_tick_count.QuadPart;
-                tick_interval *= tick_inc;
-                tick_interval /= 10;
-
-                /*DbgPrintF(MP_TRACE, "base tick %lld", ((PMP_ADAPTER)pdata->pAdapter)->D0_entry_tick_count.QuadPart);
-                DbgPrintF(MP_TRACE, "current tick %lld", tick_count.QuadPart);
-                DbgPrintF(MP_TRACE, "tick inc is %u", tick_inc);
-                DbgPrintF(MP_TRACE, "tick_interval is %lld", tick_interval);*/
-                if (((regval & MGMT_EPHY_CTRL_STA_EPHY_RELEASE) && (regval & MGMT_EPHY_CTRL_STA_EPHY_LINKUP))
-                     || ((regval & MGMT_EPHY_CTRL_STA_EPHY_RELEASE) && !(regval & MGMT_EPHY_CTRL_STA_EPHY_LINKUP) && (tick_interval < RESUME_MAX_TIME) && (MediaConnectStateConnected == ((PMP_ADAPTER)pdata->pAdapter)->PreMediaState))
-                    )
-                {
-                    fxgmac_legacy_link_speed_setting(pdata);
-                }
-            }
-        }
 #else
+            speed = SPEED_100;
 #endif
-#endif
+        }
 
+#if defined(FXGMAC_FIX_SHUT_DOWN_ISSUE)
+        fxgmac_link_speed_down_fix_shutdown_issue(pdata);
+#elif defined(FXGMAC_LINK_SPEED_CHECK_PHY_LINK)
         /*
         When the Linux platform enters the s4 state, it goes through the suspend->resume->suspend process.
         The process of suspending again after resume is fast, and PHY auto-negotiation is not yet complete,
         so the auto-negotiation of PHY must be carried out again.Windows platforms and UEFI platforms do
         not need to auto-negotiate again, as they will not have such a process.
-
         When the Linux platform enters the s4 state, force speed to 10M.
         */
-#ifdef UEFI
-        fxgmac_legacy_link_speed_setting(pdata);
-#elif defined(_WIN32) || defined(_WIN64)
-
-#elif defined(LINUX)
-        pdata->phy_speed = SPEED_10;
-        fxgmac_legacy_link_speed_setting(pdata);
+        regval = fxgmac_get_ephy_state(pdata);
+        link = FXGMAC_GET_REG_BITS(regval, MGMT_EPHY_CTRL_STA_EPHY_LINKUP_POS,
+                                    MGMT_EPHY_CTRL_STA_EPHY_LINKUP_LEN);
+        if (link && (speed != pdata->phy_speed)) {
+            pdata->phy_speed = speed;
+            fxgmac_legacy_link_speed_setting(pdata);
+        }
 #else
         fxgmac_legacy_link_speed_setting(pdata);
-#endif       
+#endif
     }
 
     fxgmac_config_mac_speed(pdata);
@@ -5747,82 +5007,7 @@ static void fxgmac_pre_powerdown(struct fxgmac_pdata* pdata, bool phyloopback)
     //fxgmac_suspend_clock_gate(pdata);
 }
 
-#if defined(LINUX)
-// only supports four patterns, and patterns will be cleared on every call 
-static void fxgmac_set_pattern_data(struct fxgmac_pdata *pdata)
-{
-    u32                             ip_addr, i = 0;
-    u8                              type_offset, op_offset, tip_offset;
-    struct pattern_packet           packet;
-    struct wol_bitmap_pattern       pattern[4]; // for WAKE_UCAST, WAKE_BCAST, WAKE_MCAST, WAKE_ARP.
-
-    memset(pattern, 0, sizeof(struct wol_bitmap_pattern) * 4);
-
-    //config ucast
-    if (pdata->expansion.wol & WAKE_UCAST) {
-        pattern[i].mask_info[0] = 0x3F;
-        pattern[i].mask_size = sizeof(pattern[0].mask_info);
-        memcpy(pattern[i].pattern_info, pdata->mac_addr, ETH_ALEN);
-        pattern[i].pattern_offset = 0;
-        i++;
-    }
-
-    // config bcast
-    if (pdata->expansion.wol & WAKE_BCAST) {
-        pattern[i].mask_info[0] = 0x3F;
-        pattern[i].mask_size = sizeof(pattern[0].mask_info);
-        memset(pattern[i].pattern_info, 0xFF, ETH_ALEN);
-        pattern[i].pattern_offset = 0;
-        i++;
-    }
-
-    // config mcast
-    if (pdata->expansion.wol & WAKE_MCAST) {
-        pattern[i].mask_info[0] = 0x7;
-        pattern[i].mask_size = sizeof(pattern[0].mask_info);
-        pattern[i].pattern_info[0] = 0x1;
-        pattern[i].pattern_info[1] = 0x0;
-        pattern[i].pattern_info[2] = 0x5E;
-        pattern[i].pattern_offset = 0;
-        i++;
-    }
-
-    // config arp
-    if (pdata->expansion.wol & WAKE_ARP) {
-        memset(pattern[i].mask_info, 0, sizeof(pattern[0].mask_info));
-        type_offset = offsetof(struct pattern_packet, ar_pro);
-        pattern[i].mask_info[type_offset / 8] |= 1 << type_offset % 8;
-        type_offset++;
-        pattern[i].mask_info[type_offset / 8] |= 1 << type_offset % 8;
-        op_offset = offsetof(struct pattern_packet, ar_op);
-        pattern[i].mask_info[op_offset / 8] |= 1 << op_offset % 8;
-        op_offset++;
-        pattern[i].mask_info[op_offset / 8] |= 1 << op_offset % 8;
-        tip_offset = offsetof(struct pattern_packet, ar_tip);
-        pattern[i].mask_info[tip_offset / 8] |= 1 << tip_offset % 8;
-        tip_offset++;
-        pattern[i].mask_info[tip_offset / 8] |= 1 << type_offset % 8;
-        tip_offset++;
-        pattern[i].mask_info[tip_offset / 8] |= 1 << type_offset % 8;
-        tip_offset++;
-        pattern[i].mask_info[tip_offset / 8] |= 1 << type_offset % 8;
-
-        packet.ar_pro = 0x0 << 8 | 0x08; // arp type is 0x0800, notice that ar_pro and ar_op is big endian
-        packet.ar_op = 0x1 << 8; // 1 is arp request,2 is arp replay, 3 is rarp request, 4 is rarp replay
-        ip_addr = fxgmac_get_netdev_ip4addr(pdata);
-        packet.ar_tip[0] = ip_addr & 0xFF;
-        packet.ar_tip[1] = (ip_addr >> 8) & 0xFF;
-        packet.ar_tip[2] = (ip_addr >> 16) & 0xFF;
-        packet.ar_tip[3] = (ip_addr >> 24) & 0xFF;
-        memcpy(pattern[i].pattern_info, &packet, MAX_PATTERN_SIZE);
-        pattern[i].mask_size = sizeof(pattern[0].mask_info);
-        pattern[i].pattern_offset = 0;
-        i++;
-    }
-
-    fxgmac_set_wake_pattern(pdata, pattern, i);
-}
-
+#ifdef FXGMAC_WOL_INTEGRATED_WOL_PARAMETER
 static void fxgmac_config_powerdown(struct fxgmac_pdata *pdata, unsigned int wol)
 #else
 static void fxgmac_config_powerdown(struct fxgmac_pdata* pdata, unsigned int offloadcount, bool magic_en, bool remote_pattern_en)
@@ -5861,12 +5046,6 @@ static void fxgmac_config_powerdown(struct fxgmac_pdata* pdata, unsigned int off
         fxgmac_write_ephy_reg(pdata, REG_MII_EXT_DATA, 0x00);
     }
 
-#if defined(LINUX)
-    if(!test_bit(FXGMAC_POWER_STATE_DOWN, &pdata->expansion.powerstate)) {
-        netdev_err(pdata->netdev, 
-            "fxgmac powerstate is %lu when config power to down.\n", pdata->expansion.powerstate);
-    }
-
 #if FXGMAC_WOL_FEATURE_ENABLED
     fxgmac_config_wol(pdata, wol);
 #endif
@@ -5882,24 +5061,23 @@ static void fxgmac_config_powerdown(struct fxgmac_pdata* pdata, unsigned int off
     fxgmac_update_ns_offload_ipv6addr(pdata, FXGMAC_NS_IFA_LOCAL_LINK);
     fxgmac_enable_ns_offload(pdata);
 #endif
-#endif // LINUX.
 
-#if defined(_WIN32) || defined(_WIN64)
+#if FXGMAC_PM_WPI_READ_FEATURE_ENABLED
     fxgmac_enable_wake_packet_indication(pdata, 1);
-#endif	
+#endif
     /* Enable MAC Rx TX */
-#if defined(LINUX)
+#ifdef FXGMAC_WOL_INTEGRATED_WOL_PARAMETER
     if (1) {
 #else
     if (magic_en || remote_pattern_en || offloadcount) {
 #endif
         regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_CR);
         regval = FXGMAC_SET_REG_BITS(regval, MAC_CR_RE_POS, MAC_CR_RE_LEN, 1);
-#if defined(LINUX)
+#if defined(FXGMAC_AOE_FEATURE_ENABLED) || defined(FXGMAC_NS_OFFLOAD_ENABLED)
         if(pdata->hw_feat.aoe) {
 #else
         if (offloadcount) {
-#endif	
+#endif
             regval = FXGMAC_SET_REG_BITS(regval, MAC_CR_TE_POS, MAC_CR_TE_LEN, 1);
         }
         writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_CR);
@@ -5926,28 +5104,16 @@ static void fxgmac_config_powerdown(struct fxgmac_pdata* pdata, unsigned int off
     regval = FXGMAC_SET_REG_BITS(regval, MAC_PMT_STA_PWRDWN_POS, MAC_PMT_STA_PWRDWN_LEN, 1);
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_PMT_STA);
 
-#ifdef LINUX
-    /*adjust sigdet threshold*/
-    //redmine.motor-comm.com/issues/5093 
-    // fix issue can not wake up os on some FT-D2000 platform, this modification is only temporary
-    // if it is 55mv, wol maybe failed.
-
     regval = readreg(pdata->pAdapter, pdata->base_mem + MGMT_SIGDET);
-    regval = FXGMAC_SET_REG_BITS(regval, MGMT_SIGDET_POS, MGMT_SIGDET_LEN, MGMT_SIGDET_40MV);
+    regval = FXGMAC_SET_REG_BITS(regval, MGMT_SIGDET_POS, MGMT_SIGDET_LEN, MGMT_SIGDET_55MV);
     writereg(pdata->pAdapter, regval, pdata->base_mem + MGMT_SIGDET);
-#endif
+
     DPRINTK("fxgmac_config_powerdown callout, reg=0x%08x\n", regval);
 }
 
 static void fxgmac_config_powerup(struct fxgmac_pdata* pdata)
 {
     u32 regval = 0;
-
-#if defined(LINUX)	
-    if (test_bit(FXGMAC_POWER_STATE_DOWN, &pdata->expansion.powerstate)) {
-        netdev_err(pdata->netdev, "fxgmac powerstate is %lu when config power to up.\n", pdata->expansion.powerstate);
-    }
-#endif
 
     /* After enable OOB_WOL from efuse, mac will loopcheck phy status, and lead to panic sometimes.
         So we should disable it from powerup, enable it from power down.*/
@@ -5964,7 +5130,7 @@ static void fxgmac_config_powerup(struct fxgmac_pdata* pdata)
     writereg(pdata->pAdapter, regval, pdata->base_mem + MGMT_WPI_CTRL0);
     /* read pmt_status register to De-assert the pmt_intr_o */
     regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_PMT_STA);
-    /* wether or not waked up by WOL, write reset value */
+    /* whether or not waked up by WOL, write reset value */
     regval = FXGMAC_SET_REG_BITS(regval, MAC_PMT_STA_PWRDWN_POS, MAC_PMT_STA_PWRDWN_LEN, 0);
     /* write register to synchronized always-on block */
     writereg(pdata->pAdapter, regval, pdata->mac_regs + MAC_PMT_STA);
@@ -6057,7 +5223,7 @@ static unsigned char fxgmac_suspend_int(void* context)
 {
     //ULONG_PTR addr;
     u32   intid;
-#if FUXI_EPHY_INTERRUPT_D0_OFF
+#if FXGMAC_EPHY_INTERRUPT_D0_OFF
     u32   regval = 0;
 #endif
     u32 val_mgmt_intcrtl0;
@@ -6078,12 +5244,12 @@ static unsigned char fxgmac_suspend_int(void* context)
     writereg(pdata->pAdapter, 0x0, pdata->base_mem + MSIX_TBL_BASE_ADDR + MSIX_TBL_MASK_OFFSET + MSI_ID_PHY_OTHER * 16);
     readreg(pdata->pAdapter, pdata->base_mem + MGMT_WOL_CTRL);//  read  clear  wake up  reason
     //since Msix interrupt masked now, enable EPHY interrupt for case of link change wakeup
-    fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);	//	clear  phy interrupt
-#if FUXI_EPHY_INTERRUPT_D0_OFF
+    fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL); // clear phy interrupt
+#if FXGMAC_EPHY_INTERRUPT_D0_OFF
     regval = FXGMAC_SET_REG_BITS(0, PHY_INT_MASK_LINK_UP_POS, PHY_INT_MASK_LINK_UP_LEN, 1);
     regval = FXGMAC_SET_REG_BITS(regval, PHY_INT_MASK_LINK_DOWN_POS, PHY_INT_MASK_LINK_DOWN_LEN, 1);
-    fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt 
-#endif    
+    fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt
+#endif
 
     return true;
 }
@@ -6113,7 +5279,7 @@ static int fxgmac_suspend_txrx(struct fxgmac_pdata* pdata)
         regval = FXGMAC_SET_REG_BITS(regval, DMA_CH_TCR_ST_POS,
             DMA_CH_TCR_ST_LEN, 0);
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_TCR));
-        DBGPRINT(MP_TRACE, (" %s disable tx  dma", __FUNCTION__));
+        DBGPRINT(MP_TRACE, (" disable channel %d tx  dma", i));
     }
 
     do {
@@ -6123,11 +5289,11 @@ static int fxgmac_suspend_txrx(struct fxgmac_pdata* pdata)
 
     if (0 != (regval & MAC_DBG_STA_TX_BUSY)) {
         regval = readreg(pdata->pAdapter, pdata->mac_regs + MAC_DBG_STA);
-        DbgPrintF(MP_WARN, "warning !!!timed out waiting for Tx MAC to stop\n");
+        DbgPrintF(MP_WARN, "warning !!!timed out waiting for Tx MAC to stop regval %x\n", regval);
         return -1;
     }
     /* wait  empty Tx queue */
-    for (i = 0; i < pdata->tx_q_count; i++) {   
+    for (i = 0; i < pdata->tx_q_count; i++) {
         do {
 
             regval = readreg(pdata->pAdapter, FXGMAC_MTL_REG(pdata, i, MTL_TXQ_DEG));
@@ -6164,7 +5330,7 @@ static int fxgmac_suspend_txrx(struct fxgmac_pdata* pdata)
         regval = FXGMAC_SET_REG_BITS(regval, DMA_CH_RCR_SR_POS,
                          DMA_CH_RCR_SR_LEN, 0);
         writereg(pdata->pAdapter, regval, FXGMAC_DMA_REG(channel, DMA_CH_RCR));
-        DBGPRINT(MP_TRACE, (" %s disable rx  dma", __FUNCTION__));
+        DBGPRINT(MP_TRACE, (" disable channel %d rx dma", i));
     }
     return 0;
 }
@@ -6187,16 +5353,26 @@ static void fxgmac_resume_int(struct fxgmac_pdata* pdata)
     for (intid = MSIX_TBL_RXTX_NUM; intid < MSIX_TBL_MAX_NUM; intid++) { // disable  some  msix
         writereg(pdata->pAdapter, 0, pdata->base_mem + MSIX_TBL_BASE_ADDR + MSIX_TBL_MASK_OFFSET + intid * 16);
     }
-    
-#if FUXI_EPHY_INTERRUPT_D0_OFF
+
+#if FXGMAC_EPHY_INTERRUPT_D0_OFF
     fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK,0x0);     //disable phy interrupt
     fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);      //  clear  phy interrupt
 #else
     //hw_ops->read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);//     clear  phy interrupt
     regval = FXGMAC_SET_REG_BITS(0, PHY_INT_MASK_LINK_UP_POS, PHY_INT_MASK_LINK_UP_LEN, 1);
     regval = FXGMAC_SET_REG_BITS(regval, PHY_INT_MASK_LINK_DOWN_POS, PHY_INT_MASK_LINK_DOWN_LEN, 1);
-    fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt 
-#endif    
+    fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt
+#endif
+}
+
+static void fxgmac_config_wol_wait_time(struct fxgmac_pdata *pdata)
+{
+    u32 regval;
+
+    regval = readreg(pdata->pAdapter, pdata->base_mem + WOL_CTL);
+    regval = FXGMAC_SET_REG_BITS(regval, WOL_WAIT_TIME_POS, WOL_WAIT_TIME_LEN,
+                                FXGMAC_WOL_WAIT_TIME);
+    writereg(pdata->pAdapter, regval, pdata->base_mem + WOL_CTL);
 }
 
 static int fxgmac_hw_init(struct fxgmac_pdata *pdata)
@@ -6205,15 +5381,15 @@ static int fxgmac_hw_init(struct fxgmac_pdata *pdata)
     int ret;
     u32 regval = 0;
 
-    if (netif_msg_drv(pdata)) { DPRINTK("fxgmac hw init call in\n"); }
+    if (netif_msg_drv(pdata)) { DPRINTK("fxgmac hw init call in regval %x\n", regval); }
 
     /* Flush Tx queues */
     ret = fxgmac_flush_tx_queues(pdata);
     if (ret) {
-        if (netif_msg_drv(pdata)) { DPRINTK("fxgmac_hw_init call flush tx queue err.\n"); }
-#ifdef LINUX		
-        return ret;
-#endif		
+#ifdef FXGMAC_FLUSH_TX_CHECK_ENABLED
+    dev_err(pdata->dev, "fxgmac_hw_init call flush tx queue err.\n");
+    return ret;
+#endif
     }
 
     /* Initialize DMA related features */
@@ -6228,10 +5404,6 @@ static int fxgmac_hw_init(struct fxgmac_pdata *pdata)
     fxgmac_config_tso_mode(pdata);
     fxgmac_config_sph_mode(pdata);
     fxgmac_config_rss(pdata);
-
-#ifdef LINUX
-    fxgmac_config_wol(pdata, pdata->expansion.wol);
-#endif
 
     desc_ops->tx_desc_init(pdata);
     desc_ops->rx_desc_init(pdata);
@@ -6253,7 +5425,7 @@ static int fxgmac_hw_init(struct fxgmac_pdata *pdata)
 
     /* Initialize MAC related features */
     fxgmac_config_mac_address(pdata);
-    fxgmac_config_crc_check(pdata);	
+    fxgmac_config_crc_check(pdata);
     fxgmac_config_rx_mode(pdata);
     fxgmac_config_jumbo(pdata);
     fxgmac_config_flow_control(pdata);
@@ -6263,13 +5435,15 @@ static int fxgmac_hw_init(struct fxgmac_pdata *pdata)
     fxgmac_config_mmc(pdata);
     fxgmac_enable_mac_interrupts(pdata);
 
+    fxgmac_config_wol_wait_time(pdata);
+
     /* enable EPhy link change interrupt */
     fxgmac_read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);//  clear  phy interrupt
     regval = FXGMAC_SET_REG_BITS(0, PHY_INT_MASK_LINK_UP_POS, PHY_INT_MASK_LINK_UP_LEN, 1);
     regval = FXGMAC_SET_REG_BITS(regval, PHY_INT_MASK_LINK_DOWN_POS, PHY_INT_MASK_LINK_DOWN_LEN, 1);
-    fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt 
+    fxgmac_write_ephy_reg(pdata, REG_MII_INT_MASK, regval);//enable phy interrupt
 
-    if (netif_msg_drv(pdata)) { DPRINTK("fxgmac hw init callout\n"); }
+    if (netif_msg_drv(pdata)) { DPRINTK("fxgmac hw init callout %x\n", regval); }
     return 0;
 }
 
@@ -6289,12 +5463,12 @@ static void fxgmac_save_nonstick_reg(struct fxgmac_pdata* pdata)
 
     dm_pci_read_config8(pdata->pdev, PCI_REVISION_ID, &pdata->expansion.pci_revid);
     //dm_pci_read_config16(pdata->pdev, PCI_COMMAND, &pdata->pci_cmd_word);
-    
+
     DbgPrintF(MP_TRACE, "VenId is %x, Devid is %x, SubId is %x, SubSysId is %x, Revid is %x.\n",
              pdata->expansion.pci_venid, pdata->expansion.pci_devid, pdata->expansion.SubVendorID,
              pdata->expansion.SubSystemID, pdata->expansion.pci_revid);
 
-#elif !defined(UEFI) && !defined(PXE) && !defined(DPDK)
+#elif !defined(UEFI) && !defined(PXE) && !defined(DPDK) && !defined(KDNET)
     cfg_r32(pdata, REG_PCI_COMMAND, &pdata->expansion.cfg_pci_cmd);
     cfg_r32(pdata, REG_CACHE_LINE_SIZE, &pdata->expansion.cfg_cache_line_size);
     cfg_r32(pdata, REG_MEM_BASE, &pdata->expansion.cfg_mem_base);
@@ -6329,7 +5503,7 @@ static void fxgmac_restore_nonstick_reg(struct fxgmac_pdata* pdata)
     }
 }
 
-#if !defined(UEFI) && !defined(PXE) && !defined(DPDK)
+#if defined(FXGMAC_ESD_RESTORE_PCIE_CFG)
 static void fxgmac_esd_restore_pcie_cfg(struct fxgmac_pdata* pdata)
 {
     cfg_w32(pdata, REG_PCI_COMMAND, pdata->expansion.cfg_pci_cmd);
@@ -6362,13 +5536,13 @@ static int fxgmac_hw_exit(struct fxgmac_pdata *pdata)
     /* Issue a CHIP reset */
     regval = readreg(pdata->pAdapter, pdata->base_mem + SYS_RESET_REG);
     DPRINTK("CHIP_RESET 0x%x\n", regval);
-	/* reg152c  bit31 1->reset, self-clear, if read it again, it still set 1. */
+    /* reg152c  bit31 1->reset, self-clear, if read it again, it still set 1. */
     regval = FXGMAC_SET_REG_BITS(regval, SYS_RESET_POS, SYS_RESET_LEN, 1);
     writereg(pdata->pAdapter, regval, pdata->base_mem + SYS_RESET_REG);
 
     usleep_range_ex(pdata->pAdapter, 9000, 10000); //usleep_range_ex(pdata->pAdapter, 10, 15);
 
-	/* reg152c reset will reset trigger circuit and reload efuse patch 0x1004=0x16,need to release ephy reset again */
+    /* reg152c reset will reset trigger circuit and reload efuse patch 0x1004=0x16,need to release ephy reset again */
     value = FXGMAC_SET_REG_BITS(value, MGMT_EPHY_CTRL_RESET_POS, MGMT_EPHY_CTRL_RESET_LEN, MGMT_EPHY_CTRL_STA_EPHY_RELEASE);
     writereg(pdata->pAdapter, value, pdata->base_mem + MGMT_EPHY_CTRL);
     usleep_range_ex(pdata->pAdapter, 100, 150);
@@ -6400,17 +5574,9 @@ static int fxgmac_hw_exit(struct fxgmac_pdata *pdata)
     return 0;
 }
 
-#if defined(UEFI) || defined(PXE)
-static int fxgmac_set_gmac_register(struct fxgmac_pdata* pdata, u32 address, unsigned int data)
-#else
-static int fxgmac_set_gmac_register(struct fxgmac_pdata* pdata, u8* address, unsigned int data)
-#endif
+static int fxgmac_set_gmac_register(struct fxgmac_pdata* pdata, IOMEM address, unsigned int data)
 {
-#if defined(UEFI) || defined(PXE)
-    if (address < (u32)(pdata->base_mem))
-#else
-    if (address < (u8*)(pdata->base_mem))
-#endif
+    if (address < pdata->base_mem)
     {
         return -1;
     }
@@ -6418,19 +5584,11 @@ static int fxgmac_set_gmac_register(struct fxgmac_pdata* pdata, u8* address, uns
     return 0;
 }
 
-#if defined(UEFI) || defined(PXE)
-static u32 fxgmac_get_gmac_register(struct fxgmac_pdata* pdata, u32 address)
-#else
-static u32 fxgmac_get_gmac_register(struct fxgmac_pdata* pdata, u8* address)
-#endif
+static u32 fxgmac_get_gmac_register(struct fxgmac_pdata* pdata, IOMEM address)
 {
     u32 regval = 0;
 
-#if defined(UEFI) || defined(PXE)
-    if (address > (u32)(pdata->base_mem))
-#else
-    if (address > (u8*)(pdata->base_mem))
-#endif
+    if(address > pdata->base_mem)
     {
         regval = readreg(pdata->pAdapter, address);
     }
@@ -6491,16 +5649,84 @@ static int fxgmac_pcie_init(struct fxgmac_pdata* pdata, bool ltr_en, bool aspm_l
     /*fuxi nto adjust sigdet threshold*/
     cfg_r8(pdata, REG_PCI_REVID, &regval);
     cfg_r16(pdata, REG_PCI_DEVICE_ID, &deviceid);
-    if (FUXI_REV_01 == regval && PCI_DEVICE_ID_FUXI == deviceid)
+    if (FXGMAC_REV_01 == regval && PCI_DEVICE_ID_FUXI == deviceid)
     {
         regval = readreg(pdata->pAdapter, pdata->base_mem + MGMT_SIGDET);
         regval = FXGMAC_SET_REG_BITS(regval, MGMT_SIGDET_POS, MGMT_SIGDET_LEN, MGMT_SIGDET_55MV);
         writereg(pdata->pAdapter, regval, pdata->base_mem + MGMT_SIGDET);
+
+        regval = readreg(pdata->pAdapter, pdata->base_mem + MGMT_SIGDET_DEGLITCH);
+        regval = FXGMAC_SET_REG_BITS(regval, MGMT_SIGDET_DEGLITCH_DISABLE_POS, MGMT_SIGDET_DEGLITCH_DISABLE_LEN, 1);
+        writereg(pdata->pAdapter, regval, pdata->base_mem + MGMT_SIGDET_DEGLITCH);
     }
 
     return 0;
 }
 
+static void fxgmac_clear_misc_int_status(struct fxgmac_pdata *pdata)
+{
+    struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
+    u32 regval, i, q_count;
+
+    /* clear phy interrupt status */
+    hw_ops->read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);
+    hw_ops->read_ephy_reg(pdata, REG_MII_INT_STATUS, NULL);
+    /* clear other interrupt status of misc interrupt */
+    regval = pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_ISR);
+    if(regval) {
+        if(regval & (1 << MGMT_MAC_PHYIF_STA_POS))
+            pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_PHYIF_STA);
+
+        if((regval & (1 << MGMT_MAC_AN_SR0_POS)) ||
+            (regval & (1 << MGMT_MAC_AN_SR0_POS)) ||
+            (regval & (1 << MGMT_MAC_AN_SR0_POS)))
+            pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_AN_SR);
+
+        if(regval & (1 << MGMT_MAC_PMT_STA_POS))
+            pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_PMT_STA);
+
+        if(regval & (1 << MGMT_MAC_LPI_STA_POS))
+            pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_LPI_STA);
+
+        if(regval & (1 << MGMT_MAC_MMC_STA_POS)) {
+            if(regval & (1 << MGMT_MAC_RX_MMC_STA_POS))
+                hw_ops->rx_mmc_int(pdata);
+
+            if(regval & (1 << MGMT_MAC_TX_MMC_STA_POS))
+                hw_ops->tx_mmc_int(pdata);
+
+            if(regval & (1 << MGMT_MMC_IPCRXINT_POS))
+                pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MMC_IPCRXINT);
+
+        }
+
+        if((regval & (1 << MGMT_MAC_TX_RX_STA0_POS)) || (regval & (1 << MGMT_MAC_TX_RX_STA1_POS)))
+            pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_TX_RX_STA);
+
+        if(regval & (1 << MGMT_MAC_GPIO_SR_POS))
+            pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MAC_GPIO_SR);
+    }
+
+    /* MTL_Interrupt_Status, write 1 clear */
+    regval = pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MTL_INT_SR);
+    pdata->hw_ops.set_gmac_register(pdata, pdata->mac_regs + MTL_INT_SR, regval);
+
+    /* MTL_Q(#i)_Interrupt_Control_Status, write 1 clear */
+    q_count = max(pdata->hw_feat.tx_q_cnt, pdata->hw_feat.rx_q_cnt);
+    for (i = 0; i < q_count; i++) {
+        /* Clear all the interrupts which are set */
+        regval = pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MTL_Q_INT_CTL_SR + i * MTL_Q_INC);
+        pdata->hw_ops.set_gmac_register(pdata, pdata->mac_regs + MTL_Q_INT_CTL_SR + i * MTL_Q_INC, regval);
+    }
+
+    /* MTL_ECC_Interrupt_Status, write 1 clear */
+    regval = pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + MTL_ECC_INT_SR);
+    pdata->hw_ops.set_gmac_register(pdata, pdata->mac_regs + MTL_ECC_INT_SR, regval);
+
+    /* DMA_ECC_Interrupt_Status, write 1 clear */
+    regval = pdata->hw_ops.get_gmac_register(pdata, pdata->mac_regs + DMA_ECC_INT_SR);
+    pdata->hw_ops.set_gmac_register(pdata, pdata->mac_regs + DMA_ECC_INT_SR, regval);
+}
 
 static void fxgmac_trigger_pcie(struct fxgmac_pdata* pdata, u32 code)
 {
@@ -6513,7 +5739,7 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->exit = fxgmac_hw_exit;
     hw_ops->save_nonstick_reg = fxgmac_save_nonstick_reg;
     hw_ops->restore_nonstick_reg = fxgmac_restore_nonstick_reg;
-#if !defined(UEFI) && !defined(PXE) && !defined(DPDK)
+#if defined(FXGMAC_ESD_RESTORE_PCIE_CFG)
     hw_ops->esd_restore_pcie_cfg = fxgmac_esd_restore_pcie_cfg;
 #endif
 
@@ -6527,11 +5753,6 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->disable_rx = fxgmac_disable_rx;
     hw_ops->enable_channel_rx = fxgmac_enable_channel_rx;
 
-#ifdef LINUX
-    hw_ops->dev_xmit = fxgmac_dev_xmit;
-    hw_ops->dev_read = fxgmac_dev_read;
-    hw_ops->config_tso = fxgmac_config_tso_mode;
-#endif
     hw_ops->enable_int = fxgmac_enable_int;
     hw_ops->disable_int = fxgmac_disable_int;
     hw_ops->set_interrupt_moderation = fxgmac_set_interrupt_moderation;
@@ -6542,9 +5763,11 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->disable_msix_one_interrupt = fxgmac_disable_msix_one_interrupt;
     hw_ops->enable_mgm_interrupt = fxgmac_enable_mgm_interrupt;
     hw_ops->disable_mgm_interrupt = fxgmac_disable_mgm_interrupt;
+    hw_ops->dismiss_all_int = fxgmac_dismiss_all_int;
+    hw_ops->clear_misc_int_status = fxgmac_clear_misc_int_status;
 
     hw_ops->set_mac_address = fxgmac_set_mac_address;
-    hw_ops->set_mac_hash = fxgmac_add_mac_addresses;
+    hw_ops->set_mac_hash = fxgmac_set_mc_addresses;
     hw_ops->config_rx_mode = fxgmac_config_rx_mode;
     hw_ops->enable_rx_csum = fxgmac_enable_rx_csum;
     hw_ops->disable_rx_csum = fxgmac_disable_rx_csum;
@@ -6554,21 +5777,12 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->get_xlgmii_phy_status = fxgmac_check_phy_link;
 
     /* For descriptor related operation */
-    hw_ops->tx_desc_init = fxgmac_tx_desc_init;
-    hw_ops->rx_desc_init = fxgmac_rx_desc_init;
-    hw_ops->tx_desc_reset = fxgmac_tx_desc_reset;
-    hw_ops->rx_desc_reset = fxgmac_rx_desc_reset;
     hw_ops->is_last_desc = fxgmac_is_last_desc;
     hw_ops->is_context_desc = fxgmac_is_context_desc;
-#ifdef LINUX
-    hw_ops->tx_start_xmit = fxgmac_tx_start_xmit;
-    hw_ops->set_pattern_data = fxgmac_set_pattern_data;
-    hw_ops->config_wol = fxgmac_config_wol;
-    hw_ops->get_rss_hash_key = fxgmac_read_rss_hash_key;
-    hw_ops->write_rss_lookup_table = fxgmac_write_rss_lookup_table;
+
+    hw_ops->config_tso = fxgmac_config_tso_mode;
 #if FXGMAC_SANITY_CHECK_ENABLED
     hw_ops->diag_sanity_check = fxgmac_diag_sanity_check;
-#endif
 #endif
 
     /* For Flow Control */
@@ -6610,15 +5824,12 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->config_tx_pbl_val = fxgmac_config_tx_pbl_val;
     hw_ops->get_tx_pbl_val = fxgmac_get_tx_pbl_val;
     hw_ops->config_pblx8 = fxgmac_config_pblx8;
+    hw_ops->calculate_max_checksum_size = fxgmac_calculate_max_checksum_size;
 
     /* For MMC statistics support */
     hw_ops->tx_mmc_int = fxgmac_tx_mmc_int;
     hw_ops->rx_mmc_int = fxgmac_rx_mmc_int;
     hw_ops->read_mmc_stats = fxgmac_read_mmc_stats;
-#if defined(UEFI)
-#elif defined(_WIN32) || defined(_WIN64)
-    hw_ops->update_stats_counters = fxgmac_update_stats_counters;
-#endif
 
     /* For Receive Side Scaling */
     hw_ops->enable_rss = fxgmac_enable_rss;
@@ -6627,9 +5838,11 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->set_rss_options = fxgmac_write_rss_options;
     hw_ops->set_rss_hash_key = fxgmac_set_rss_hash_key;
     hw_ops->set_rss_lookup_table = fxgmac_set_rss_lookup_table;
+    hw_ops->get_rss_hash_key = fxgmac_read_rss_hash_key;
+    hw_ops->write_rss_lookup_table = fxgmac_write_rss_lookup_table;
 
-    /*For Offload*/
-#if defined(LINUX) || defined(_WIN64) || defined(_WIN32)
+    /*For Power Management*/
+#if defined(FXGMAC_POWER_MANAGEMENT)
     hw_ops->set_arp_offload = fxgmac_update_aoe_ipv4addr;
     hw_ops->enable_arp_offload = fxgmac_enable_arp_offload;
     hw_ops->disable_arp_offload = fxgmac_disable_arp_offload;
@@ -6649,7 +5862,7 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->enable_wake_pattern = fxgmac_enable_wake_pattern;
     hw_ops->disable_wake_pattern = fxgmac_disable_wake_pattern;
     hw_ops->set_wake_pattern_mask = fxgmac_set_wake_pattern_mask;
-#if defined(FUXI_PM_WPI_READ_FEATURE_EN) && FUXI_PM_WPI_READ_FEATURE_EN 
+#if FXGMAC_PM_WPI_READ_FEATURE_ENABLED
     hw_ops->enable_wake_packet_indication = fxgmac_enable_wake_packet_indication;
     hw_ops->get_wake_packet_indication = fxgmac_get_wake_packet_indication;
 #endif
@@ -6668,7 +5881,6 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->led_under_sleep = fxgmac_config_led_under_sleep;
     hw_ops->led_under_shutdown = fxgmac_config_led_under_shutdown;
     hw_ops->led_under_disable = fxgmac_config_led_under_disable;
-#if !defined(UEFI)
     hw_ops->enable_phy_check = fxgmac_enable_phy_check;
     hw_ops->disable_phy_check = fxgmac_disable_phy_check;
     hw_ops->setup_cable_loopback = fxgmac_setup_cable_loopback;
@@ -6677,7 +5889,6 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->enable_phy_sleep = fxgmac_enable_phy_sleep;
     hw_ops->phy_green_ethernet = fxgmac_phy_green_ethernet;
     hw_ops->phy_eee_feature = fxgmac_phy_eee_feature;
-#endif
 
     /* For power management */
     hw_ops->pre_power_down = fxgmac_pre_powerdown;
@@ -6695,18 +5906,21 @@ void fxgmac_init_hw_ops(struct fxgmac_hw_ops *hw_ops)
     hw_ops->enable_rx_broadcast = fxgmac_enable_rx_broadcast;
 
     /* efuse relevant operation. */
+    hw_ops->read_patch_from_efuse_per_index = fxgmac_read_patch_from_efuse_per_index; /* read patch per index. */
+    hw_ops->read_mac_subsys_from_efuse = fxgmac_read_mac_subsys_from_efuse;
+    hw_ops->read_efuse_data = fxgmac_efuse_read_data;
+#ifndef COMMENT_UNUSED_CODE_TO_REDUCE_SIZE
     hw_ops->read_patch_from_efuse = fxgmac_read_patch_from_efuse; /* read patch per register. */
     hw_ops->read_patch_from_efuse_per_index = fxgmac_read_patch_from_efuse_per_index; /* read patch per index. */
     hw_ops->write_patch_to_efuse = fxgmac_write_patch_to_efuse;
     hw_ops->write_patch_to_efuse_per_index = fxgmac_write_patch_to_efuse_per_index;
-    hw_ops->read_mac_subsys_from_efuse = fxgmac_read_mac_subsys_from_efuse;
     hw_ops->write_mac_subsys_to_efuse = fxgmac_write_mac_subsys_to_efuse;
     hw_ops->efuse_load = fxgmac_efuse_load;
-    hw_ops->read_efuse_data = fxgmac_efuse_read_data;
     hw_ops->write_oob = fxgmac_efuse_write_oob;
     hw_ops->write_led = fxgmac_efuse_write_led;
     hw_ops->write_led_config = fxgmac_write_led_setting_to_efuse;
     hw_ops->read_led_config = fxgmac_read_led_setting_from_efuse;
+#endif
 
     /*  */
     hw_ops->pcie_init = fxgmac_pcie_init;

@@ -18,15 +18,15 @@ PWD :=$(shell pwd)
 EXTRA_CFLAGS = -Wall -g -I$(CURDIR) -I$(subst fuxi-linux-release-package/module_fuxi/src,common,$(PWD)) -I$(PWD)
 EXTRA_CFLAGS += -DFXGMAC_DEBUG
 
-KSRC_BASE = /lib/modules/$(KERNELRELEASE)
+KSRC_BASE = /lib/modules/$(shell uname -r)
 KSRC =  $(KSRC_BASE)/build
-#KDST = /lib/modules/$(KERNELRELEASE)/kernel/drivers/net/ethernet/motorcomm/
+#KDST = /lib/modules/$(shell uname -r)/kernel/drivers/net/ethernet/motorcomm/
 KDST = kernel/drivers/net/ethernet/motorcomm
 ko_dir = $(KSRC_BASE)/$(KDST)/
 KFILE = yt6801
 ko_full = $(ko_dir)$(KFILE).ko
 
-yt6801-objs :=  fuxi-gmac-common.o fuxi-gmac-desc.o fuxi-gmac-ethtool.o fuxi-gmac-hw.o fuxi-gmac-net.o fuxi-gmac-pci.o fuxi-gmac-phy.o fuxi-efuse.o fuxi-dbg.o fuxi-gmac-debugfs.o
+yt6801-objs :=  fuxi-gmac-common.o fuxi-gmac-desc.o fuxi-gmac-ethtool.o fuxi-gmac-hw.o fuxi-gmac-net.o fuxi-gmac-pci.o fuxi-gmac-phy.o fuxi-efuse.o  fuxi-gmac-ioctl.o
 obj-m += yt6801.o
 modules:
 	make -C $(KSRC) M=$(PWD) modules
@@ -36,7 +36,7 @@ install:
 	@echo "KDST: " $(KDST)
 	make -C $(KSRC) M=$(PWD) INSTALL_MOD_DIR=$(KDST) modules_install
 	sudo ls -l $(ko_dir)
-	depmod $(KERNELRELEASE)
+	depmod $(shell uname -r)
 	modprobe $(KFILE)
 	@file $(ko_full)
 	@echo install done.

@@ -1,17 +1,20 @@
-/*++
-
-Copyright (c) 2021 Motor-comm Corporation. 
-Confidential and Proprietary. All rights reserved.
-
-This is Motor-comm Corporation NIC driver relevant files. Please don't copy, modify,
-distribute without commercial permission.
-
---*/
-
-
-#include <linux/ethtool.h>
-#include <linux/kernel.h>
-#include <linux/netdevice.h>
+// SPDX-License-Identifier: GPL-2.0+
+/* Copyright (c) 2021 Motor-comm Corporation. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ */
 
 #include "fuxi-gmac.h"
 #include "fuxi-gmac-reg.h"
@@ -111,9 +114,9 @@ static void fxgmac_ethtool_get_drvinfo(struct net_device *netdev,
     u32 ver = pdata->hw_feat.version;
     u32 sver, devid, userver;
 
-    strlcpy(drvinfo->driver, pdata->drv_name, sizeof(drvinfo->driver));
-    strlcpy(drvinfo->version, pdata->drv_ver, sizeof(drvinfo->version));
-    strlcpy(drvinfo->bus_info, dev_name(pdata->dev),
+    strscpy(drvinfo->driver, pdata->drv_name, sizeof(drvinfo->driver));
+    strscpy(drvinfo->version, pdata->drv_ver, sizeof(drvinfo->version));
+    strscpy(drvinfo->bus_info, dev_name(pdata->dev),
     sizeof(drvinfo->bus_info));
     /*
     * D|DEVID: Indicates the Device family
@@ -125,7 +128,6 @@ static void fxgmac_ethtool_get_drvinfo(struct net_device *netdev,
     		    MAC_VR_DEVID_LEN);
     userver = FXGMAC_GET_REG_BITS(ver, MAC_VR_USERVER_POS,
     		      MAC_VR_USERVER_LEN);
-    /*DPRINTK("xlgma: No userver (%x) here, sver (%x) should be 0x51\n", userver, sver);*/
     snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
      "S.D.U: %x.%x.%x", sver, devid, userver);
 }
@@ -162,18 +164,19 @@ static void fxgmac_ethtool_get_channels(struct net_device *netdev,
     /* nothing else to report if RSS is disabled */
     if (channel->combined_count == 1)
     	return;
-    DPRINTK("fxmac rss, get channels max=(combined %d,other %d),count(combined %d,other %d)\n", channel->max_combined, channel->max_other, channel->combined_count, channel->other_count); 
+    DPRINTK("fxmac rss, get channels max=(combined %d,other %d),count(combined %d,other %d)\n", channel->max_combined, channel->max_other, channel->combined_count, channel->other_count);
 #endif
 
     channel->max_rx = FXGMAC_MAX_DMA_CHANNELS;
     channel->max_tx = FXGMAC_MAX_DMA_CHANNELS;
     channel->rx_count = pdata->rx_q_count;
     channel->tx_count = pdata->tx_q_count;
-    DPRINTK("fxmac, get channels max=(rx %d,tx %d),count(%d,%d)\n", channel->max_rx, channel->max_tx, channel->rx_count, channel->tx_count); 
+    DPRINTK("fxmac, get channels max=(rx %d,tx %d),count(%d,%d)\n", channel->max_rx, channel->max_tx, channel->rx_count, channel->tx_count);
 }
 
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0) )
-static int fxgmac_ethtool_get_coalesce(struct net_device *netdev, 
+#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0) ||\
+       RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9,1) )
+static int fxgmac_ethtool_get_coalesce(struct net_device *netdev,
                                         struct ethtool_coalesce *ec,
                                         struct kernel_ethtool_coalesce *kernel_coal,
                                         struct netlink_ext_ack *extack)
@@ -186,18 +189,19 @@ static int fxgmac_ethtool_get_coalesce(struct net_device *netdev, struct ethtool
     memset(ec, 0, sizeof(struct ethtool_coalesce));
     ec->rx_coalesce_usecs = pdata->rx_usecs;
     ec->tx_coalesce_usecs = pdata->tx_usecs;
-    /*If we need to assign values to other members, 
+    /*If we need to assign values to other members,
     * we need to modify the supported_coalesce_params of fxgmac_ethtool_ops synchronously
     */
     //ec->rx_max_coalesced_frames = pdata->rx_frames;
     //ec->tx_max_coalesced_frames = pdata->tx_frames;
 
-    DPRINTK("fxmac, get coalesce\n"); 
+    DPRINTK("fxmac, get coalesce\n");
     return 0;
 }
 
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0) )
-static int fxgmac_ethtool_set_coalesce(struct net_device *netdev, 
+#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0) ||\
+       RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9,1) )
+static int fxgmac_ethtool_set_coalesce(struct net_device *netdev,
                                         struct ethtool_coalesce *ec,
                                         struct kernel_ethtool_coalesce *kernel_coal,
                                         struct netlink_ext_ack *extack)
@@ -248,15 +252,17 @@ static int fxgmac_ethtool_set_coalesce(struct net_device *netdev, struct ethtool
     pdata->tx_usecs = ec->tx_coalesce_usecs;
     hw_ops->set_interrupt_moderation(pdata);
 
-    DPRINTK("fxmac, set coalesce\n"); 
+    DPRINTK("fxmac, set coalesce\n");
     return 0;
 }
 
 #if (FXGMAC_RSS_FEATURE_ENABLED)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0))
 static u32 fxgmac_get_rxfh_key_size(struct net_device *netdev)
 {
     return FXGMAC_RSS_HASH_KEY_SIZE;
 }
+#endif
 
 static u32 fxgmac_rss_indir_size(struct net_device *netdev)
 {
@@ -267,7 +273,7 @@ static void fxgmac_get_reta(struct fxgmac_pdata *pdata, u32 *indir)
 {
     int i, reta_size = FXGMAC_RSS_MAX_TABLE_SIZE;
     u16 rss_m;
-#ifdef FXGMAC_ONE_CHANNLE
+#ifdef FXGMAC_ONE_CHANNEL
     rss_m = FXGMAC_MAX_DMA_CHANNELS;
 #else
     rss_m = FXGMAC_MAX_DMA_CHANNELS - 1; //mask for index of channel, 0-3
@@ -277,33 +283,95 @@ static void fxgmac_get_reta(struct fxgmac_pdata *pdata, u32 *indir)
     	indir[i] = pdata->rss_table[i] & rss_m;
 }
 
+#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0) )
+static int fxgmac_get_rxfh(struct net_device *netdev,struct ethtool_rxfh_param *rxfh)
+{
+    struct fxgmac_pdata *pdata = netdev_priv(netdev);
+
+    if (rxfh->hfunc)
+    {
+    	rxfh->hfunc = ETH_RSS_HASH_TOP;
+    	DPRINTK("fxmac, get_rxfh for hash function\n");
+    }
+
+    if (rxfh->indir)
+    {
+    	fxgmac_get_reta(pdata, rxfh->indir);
+    	DPRINTK("fxmac, get_rxfh for indirection tab\n");
+    }
+
+    if (rxfh->key)
+    {
+    	memcpy(rxfh->key, pdata->rss_key, fxgmac_get_rxfh_key_size(netdev));
+    	DPRINTK("fxmac, get_rxfh  for hash key\n");
+    }
+
+    return 0;
+}
+
+static int fxgmac_set_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *rxfh, struct netlink_ext_ack *ack)
+{
+    struct fxgmac_pdata *pdata = netdev_priv(netdev);
+    struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
+    int i;
+    u32 reta_entries = fxgmac_rss_indir_size(netdev);
+    int max_queues = FXGMAC_MAX_DMA_CHANNELS;
+
+    DPRINTK("fxmac, set_rxfh callin, indir=%lx, key=%lx, func=%02x\n", (unsigned long)rxfh->indir, (unsigned long)rxfh->key, rxfh->hfunc);
+
+    if (rxfh->hfunc)
+    	return -EINVAL;
+
+    /* Fill out the redirection table */
+    if (rxfh->indir) {
+#if FXGMAC_MSIX_CH0RXDIS_ENABLED
+    	max_queues = max_queues; // kill warning
+    	reta_entries = reta_entries;
+    	i = i;
+    	DPRINTK("fxmac, set_rxfh, change of indirect talbe is not supported.\n");
+    	return -EINVAL;
+#else
+    	/* double check user input. */
+    	for (i = 0; i < reta_entries; i++)
+    	    if (rxfh->indir[i] >= max_queues)
+    	        return -EINVAL;
+
+    	for (i = 0; i < reta_entries; i++)
+    	    pdata->rss_table[i] = rxfh->indir[i];
+
+    	hw_ops->write_rss_lookup_table(pdata);
+#endif
+    }
+
+    /* Fill out the rss hash key */
+    if (FXGMAC_RSS_HASH_KEY_LINUX && rxfh->key) {
+    	hw_ops->set_rss_hash_key(pdata, rxfh->key);
+    }
+
+    return 0;
+}
+#else
 static int fxgmac_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key,
 			  u8 *hfunc)
 {
     struct fxgmac_pdata *pdata = netdev_priv(netdev);
 
-    /*
-    ETH_RSS_HASH_TOP        __ETH_RSS_HASH(TOP)
-    ETH_RSS_HASH_XOR        __ETH_RSS_HASH(XOR)
-    ETH_RSS_HASH_CRC32      __ETH_RSS_HASH(CRC32)	
-    */
     if (hfunc)
     {
-    	//*hfunc = ETH_RSS_HASH_XOR;
     	*hfunc = ETH_RSS_HASH_TOP;
-    	DPRINTK("fxmac, get_rxfh for hash function\n"); 
+    	DPRINTK("fxmac, get_rxfh for hash function\n");
     }
 
     if (indir)
     {
     	fxgmac_get_reta(pdata, indir);
-    	DPRINTK("fxmac, get_rxfh for indirection tab\n"); 
+    	DPRINTK("fxmac, get_rxfh for indirection tab\n");
     }
 
     if (key)
     {
     	memcpy(key, pdata->rss_key, fxgmac_get_rxfh_key_size(netdev));
-    	DPRINTK("fxmac, get_rxfh  for hash key\n"); 
+    	DPRINTK("fxmac, get_rxfh  for hash key\n");
     }
 
     return 0;
@@ -318,14 +386,14 @@ static int fxgmac_set_rxfh(struct net_device *netdev, const u32 *indir,
     u32 reta_entries = fxgmac_rss_indir_size(netdev);
     int max_queues = FXGMAC_MAX_DMA_CHANNELS;
 
-    DPRINTK("fxmac, set_rxfh callin, indir=%lx, key=%lx, func=%02x\n", (unsigned long)indir, (unsigned long)key, hfunc); 
+    DPRINTK("fxmac, set_rxfh callin, indir=%lx, key=%lx, func=%02x\n", (unsigned long)indir, (unsigned long)key, hfunc);
 
     if (hfunc)
     	return -EINVAL;
 
     /* Fill out the redirection table */
     if (indir) {
-#if FXGMAC_MSIX_CH0RXDIS_EN
+#if FXGMAC_MSIX_CH0RXDIS_ENABLED
     	max_queues = max_queues; // kill warning
     	reta_entries = reta_entries;
     	i = i;
@@ -351,6 +419,7 @@ static int fxgmac_set_rxfh(struct net_device *netdev, const u32 *indir,
 
     return 0;
 }
+#endif
 
 static int fxgmac_get_rss_hash_opts(struct fxgmac_pdata *pdata,
 				   struct ethtool_rxnfc *cmd)
@@ -426,28 +495,25 @@ static int fxgmac_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd,
     case ETHTOOL_GRXRINGS:
     	cmd->data = pdata->rx_q_count;
     	ret = 0;
-    	DPRINTK("fxmac, get_rxnfc for rx ring cnt\n"); 
+    	DPRINTK("fxmac, get_rxnfc for rx ring cnt\n");
     	break;
     case ETHTOOL_GRXCLSRLCNT:
     	cmd->rule_cnt = 0;
     	ret = 0;
-    	DPRINTK("fxmac, get_rxnfc for classify rule cnt\n"); 
+    	DPRINTK("fxmac, get_rxnfc for classify rule cnt\n");
     	break;
     case ETHTOOL_GRXCLSRULE:
-    	DPRINTK("fxmac, get_rxnfc for classify rules\n"); 
+    	DPRINTK("fxmac, get_rxnfc for classify rules\n");
     	ret = 0;//ixgbe_get_ethtool_fdir_entry(adapter, cmd);
     	break;
     case ETHTOOL_GRXCLSRLALL:
     	cmd->rule_cnt = 0;
     	ret = 0;
-    	/*ret = ixgbe_get_ethtool_fdir_all(adapter, cmd,
-    					 (u32 *)rule_locs);
-    	*/
-    	DPRINTK("fxmac, get_rxnfc for classify both cnt and rules\n"); 
+    	DPRINTK("fxmac, get_rxnfc for classify both cnt and rules\n");
     	break;
     case ETHTOOL_GRXFH:
     	ret = fxgmac_get_rss_hash_opts(pdata, cmd);
-    	DPRINTK("fxmac, get_rxnfc for hash options\n"); 
+    	DPRINTK("fxmac, get_rxnfc for hash options\n");
     	break;
     default:
     	break;
@@ -456,8 +522,6 @@ static int fxgmac_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd,
     return ret;
 }
 
-#define UDP_RSS_FLAGS (BIT(MAC_RSSCR_UDP4TE_POS) | \
-		       BIT(MAC_RSSCR_UDP6TE_POS))
 static int fxgmac_set_rss_hash_opt(struct fxgmac_pdata *pdata,
 				  struct ethtool_rxnfc *nfc)
 {
@@ -515,7 +579,7 @@ static int fxgmac_set_rss_hash_opt(struct fxgmac_pdata *pdata,
             rssopt = FXGMAC_SET_REG_BITS(
             	rssopt,
             	MAC_RSSCR_IP4TE_POS,
-            	MAC_RSSCR_IP4TE_LEN, 1);			
+            	MAC_RSSCR_IP4TE_LEN, 1);
             switch (nfc->data & (RXH_L4_B_0_1 | RXH_L4_B_2_3)) {
                 case 0:
                 	break;
@@ -523,7 +587,7 @@ static int fxgmac_set_rss_hash_opt(struct fxgmac_pdata *pdata,
                 	rssopt = FXGMAC_SET_REG_BITS(
                 		rssopt,
                 		MAC_RSSCR_UDP4TE_POS,
-                		MAC_RSSCR_UDP4TE_LEN, 1);			
+                		MAC_RSSCR_UDP4TE_LEN, 1);
                 	break;
                 default:
                 	return -EINVAL;
@@ -536,7 +600,7 @@ static int fxgmac_set_rss_hash_opt(struct fxgmac_pdata *pdata,
             rssopt = FXGMAC_SET_REG_BITS(
             	rssopt,
             	MAC_RSSCR_IP6TE_POS,
-            	MAC_RSSCR_IP6TE_LEN, 1);			
+            	MAC_RSSCR_IP6TE_LEN, 1);
 
             switch (nfc->data & (RXH_L4_B_0_1 | RXH_L4_B_2_3)) {
                 case 0:
@@ -545,7 +609,7 @@ static int fxgmac_set_rss_hash_opt(struct fxgmac_pdata *pdata,
                 	rssopt = FXGMAC_SET_REG_BITS(
                 		rssopt,
                 		MAC_RSSCR_UDP6TE_POS,
-                		MAC_RSSCR_UDP6TE_LEN, 1);			
+                		MAC_RSSCR_UDP6TE_LEN, 1);
                 	break;
                 default:
                 	return -EINVAL;
@@ -571,37 +635,14 @@ static int fxgmac_set_rss_hash_opt(struct fxgmac_pdata *pdata,
 
     /* if options are changed, then update to hw */
     if (rssopt != pdata->rss_options) {
-    if ((rssopt & UDP_RSS_FLAGS) &&
-        !(pdata->rss_options & UDP_RSS_FLAGS))
-    	DPRINTK("enabling UDP RSS: fragmented packets"
-    	       " may arrive out of order to the stack above\n");
+        if ((rssopt & UDP_RSS_FLAGS) &&
+            !(pdata->rss_options & UDP_RSS_FLAGS))
+        	DPRINTK("enabling UDP RSS: fragmented packets"
+        	       " may arrive out of order to the stack above\n");
 
-    DPRINTK("rss option changed from %x to %x\n", pdata->rss_options, rssopt);
-    pdata->rss_options = rssopt;
-#if 1
-    hw_ops->set_rss_options(pdata);
-#else
-    /* Perform hash on these packet types */
-    mrqc |= IXGBE_MRQC_RSS_FIELD_IPV4
-          | IXGBE_MRQC_RSS_FIELD_IPV4_TCP
-          | IXGBE_MRQC_RSS_FIELD_IPV6
-          | IXGBE_MRQC_RSS_FIELD_IPV6_TCP;
-
-    mrqc &= ~(IXGBE_MRQC_RSS_FIELD_IPV4_UDP |
-    	  IXGBE_MRQC_RSS_FIELD_IPV6_UDP);
-
-    if (flags2 & IXGBE_FLAG2_RSS_FIELD_IPV4_UDP)
-    	mrqc |= IXGBE_MRQC_RSS_FIELD_IPV4_UDP;
-
-    if (flags2 & IXGBE_FLAG2_RSS_FIELD_IPV6_UDP)
-    	mrqc |= IXGBE_MRQC_RSS_FIELD_IPV6_UDP;
-
-    if ((hw->mac.type >= ixgbe_mac_X550) &&
-        (adapter->flags & IXGBE_FLAG_SRIOV_ENABLED))
-    	IXGBE_WRITE_REG(hw, IXGBE_PFVFMRQC(pf_pool), mrqc);
-    else
-    	IXGBE_WRITE_REG(hw, IXGBE_MRQC, mrqc);
-#endif		
+        DPRINTK("rss option changed from %x to %x\n", pdata->rss_options, rssopt);
+        pdata->rss_options = rssopt;
+        hw_ops->set_rss_options(pdata);
     }
 
     return 0;
@@ -615,13 +656,9 @@ static int fxgmac_set_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd)
 
     switch (cmd->cmd) {
     case ETHTOOL_SRXCLSRLINS:
-    	//no support. rx classifier rule insert
-    	//ret = ixgbe_add_ethtool_fdir_entry(adapter, cmd);
     	DPRINTK("set_rxnfc for rx cls rule insert-n\\a\n");
     	break;
     case ETHTOOL_SRXCLSRLDEL:
-    	//no support. rx classifier rule delete
-    	//ret = ixgbe_del_ethtool_fdir_entry(adapter, cmd);
     	DPRINTK("set_rxnfc for rx cls rule del-n\\a\n");
     	break;
     case ETHTOOL_SRXFH:
@@ -636,7 +673,8 @@ static int fxgmac_set_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd)
 }
 #endif //FXGMAC_RSS_FEATURE_ENABLED
 
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0) )
+#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0) ||\
+       RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9,1) )
 static void fxgmac_get_ringparam(struct net_device *netdev,
              struct ethtool_ringparam *ring,
              struct kernel_ethtool_ringparam *kernel_ring,
@@ -649,7 +687,7 @@ static void fxgmac_get_ringparam(struct net_device *netdev,
 {
     struct fxgmac_pdata *pdata = netdev_priv(netdev);
 
-    DPRINTK("fxmac, get_ringparam callin\n"); 
+    DPRINTK("fxmac, get_ringparam callin\n");
 
     ring->rx_max_pending = FXGMAC_RX_DESC_CNT;
     ring->tx_max_pending = FXGMAC_TX_DESC_CNT;
@@ -661,7 +699,8 @@ static void fxgmac_get_ringparam(struct net_device *netdev,
     ring->rx_jumbo_pending = 0;
 }
 
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0) )
+#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0) ||\
+       RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9,1) )
 static int fxgmac_set_ringparam(struct net_device *netdev,
              struct ethtool_ringparam *ring,
              struct kernel_ethtool_ringparam *kernel_ring,
@@ -675,6 +714,10 @@ static int fxgmac_set_ringparam(struct net_device *netdev,
     struct fxgmac_pdata *pdata = netdev_priv(netdev);
     struct fxgmac_desc_ops *desc_ops = &pdata->desc_ops;
 
+    if (pdata->expansion.dev_state != FXGMAC_DEV_START)
+        return 0;
+
+    fxgmac_lock(pdata);
     DPRINTK("fxmac, set_ringparam callin\n");
 
     pdata->tx_desc_count = ring->tx_pending;
@@ -683,8 +726,9 @@ static int fxgmac_set_ringparam(struct net_device *netdev,
     fxgmac_stop(pdata);
     fxgmac_free_tx_data(pdata);
     fxgmac_free_rx_data(pdata);
-    desc_ops->alloc_channles_and_rings(pdata);
+    desc_ops->alloc_channels_and_rings(pdata);
     fxgmac_start(pdata);
+    fxgmac_unlock(pdata);
 
     return 0;
 }
@@ -695,11 +739,6 @@ static void fxgmac_get_wol(struct net_device *netdev,
 {
     struct fxgmac_pdata *pdata = netdev_priv(netdev);
 
-    /* for further feature implementation
-    wol->supported = WAKE_PHY | WAKE_UCAST | WAKE_MCAST |
-    		 WAKE_BCAST | WAKE_MAGIC;
-    */
-
     wol->supported = WAKE_UCAST | WAKE_MCAST | WAKE_BCAST | WAKE_MAGIC | WAKE_ARP;
 #if FXGMAC_WOL_UPON_EPHY_LINK
     wol->supported |= WAKE_PHY;
@@ -707,24 +746,133 @@ static void fxgmac_get_wol(struct net_device *netdev,
 
     wol->wolopts = 0;
     if (!(pdata->hw_feat.rwk) || !device_can_wakeup(/*pci_dev_to_dev*/(pdata->dev))) {
-    	DPRINTK("fxgmac get_wol, pci does not support wakeup\n"); 
+    	DPRINTK("fxgmac get_wol, pci does not support wakeup\n");
     	return;
     }
-#if 0
-    wol->wolopts |= WAKE_UCAST;
-    wol->wolopts |= WAKE_MCAST;
-    wol->wolopts |= WAKE_BCAST;
-    wol->wolopts |= WAKE_MAGIC;
-#else
     wol->wolopts = pdata->expansion.wol;
-#endif
-    DPRINTK("fxmac, get_wol, 0x%x, 0x%x\n", wol->wolopts, pdata->expansion.wol); 
+}
+
+// only supports four patterns, and patterns will be cleared on every call
+static void fxgmac_set_pattern_data(struct fxgmac_pdata *pdata)
+{
+	struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
+	u32                             ip_addr, i = 0;
+    u8                              type_offset, op_offset, tip_offset;
+    struct pattern_packet           packet;
+    struct wol_bitmap_pattern       pattern[4]; // for WAKE_UCAST, WAKE_BCAST, WAKE_MCAST, WAKE_ARP.
+
+    memset(pattern, 0, sizeof(struct wol_bitmap_pattern) * 4);
+
+    //config ucast
+    if (pdata->expansion.wol & WAKE_UCAST) {
+        pattern[i].mask_info[0] = 0x3F;
+        pattern[i].mask_size = sizeof(pattern[0].mask_info);
+        memcpy(pattern[i].pattern_info, pdata->mac_addr, ETH_ALEN);
+        pattern[i].pattern_offset = 0;
+        i++;
+    }
+
+    // config bcast
+    if (pdata->expansion.wol & WAKE_BCAST) {
+        pattern[i].mask_info[0] = 0x3F;
+        pattern[i].mask_size = sizeof(pattern[0].mask_info);
+        memset(pattern[i].pattern_info, 0xFF, ETH_ALEN);
+        pattern[i].pattern_offset = 0;
+        i++;
+    }
+
+    // config mcast
+    if (pdata->expansion.wol & WAKE_MCAST) {
+        pattern[i].mask_info[0] = 0x7;
+        pattern[i].mask_size = sizeof(pattern[0].mask_info);
+        pattern[i].pattern_info[0] = 0x1;
+        pattern[i].pattern_info[1] = 0x0;
+        pattern[i].pattern_info[2] = 0x5E;
+        pattern[i].pattern_offset = 0;
+        i++;
+    }
+
+    // config arp
+    if (pdata->expansion.wol & WAKE_ARP) {
+        memset(pattern[i].mask_info, 0, sizeof(pattern[0].mask_info));
+        type_offset = offsetof(struct pattern_packet, ar_pro);
+        pattern[i].mask_info[type_offset / 8] |= 1 << type_offset % 8;
+        type_offset++;
+        pattern[i].mask_info[type_offset / 8] |= 1 << type_offset % 8;
+        op_offset = offsetof(struct pattern_packet, ar_op);
+        pattern[i].mask_info[op_offset / 8] |= 1 << op_offset % 8;
+        op_offset++;
+        pattern[i].mask_info[op_offset / 8] |= 1 << op_offset % 8;
+        tip_offset = offsetof(struct pattern_packet, ar_tip);
+        pattern[i].mask_info[tip_offset / 8] |= 1 << tip_offset % 8;
+        tip_offset++;
+        pattern[i].mask_info[tip_offset / 8] |= 1 << type_offset % 8;
+        tip_offset++;
+        pattern[i].mask_info[tip_offset / 8] |= 1 << type_offset % 8;
+        tip_offset++;
+        pattern[i].mask_info[tip_offset / 8] |= 1 << type_offset % 8;
+
+        packet.ar_pro = 0x0 << 8 | 0x08; // arp type is 0x0800, notice that ar_pro and ar_op is big endian
+        packet.ar_op = 0x1 << 8; // 1 is arp request,2 is arp replay, 3 is rarp request, 4 is rarp replay
+        ip_addr = fxgmac_get_netdev_ip4addr(pdata);
+        packet.ar_tip[0] = ip_addr & 0xFF;
+        packet.ar_tip[1] = (ip_addr >> 8) & 0xFF;
+        packet.ar_tip[2] = (ip_addr >> 16) & 0xFF;
+        packet.ar_tip[3] = (ip_addr >> 24) & 0xFF;
+        memcpy(pattern[i].pattern_info, &packet, MAX_PATTERN_SIZE);
+        pattern[i].mask_size = sizeof(pattern[0].mask_info);
+        pattern[i].pattern_offset = 0;
+        i++;
+    }
+
+	hw_ops->set_wake_pattern(pdata, pattern, i);
+}
+
+void fxgmac_config_wol(struct fxgmac_pdata *pdata, int en)
+{
+    /* enable or disable WOL. this function only set wake-up type, and power related configure
+     * will be in other place, see power management.
+     */
+	struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
+    if (!pdata->hw_feat.rwk) {
+        netdev_err(pdata->netdev, "error configuring WOL - not supported.\n");
+        return;
+    }
+
+	hw_ops->disable_wake_magic_pattern(pdata);
+	hw_ops->disable_wake_pattern(pdata);
+	hw_ops->disable_wake_link_change(pdata);
+
+    if(en) {
+        /* config mac address for rx of magic or ucast */
+		hw_ops->set_mac_address(pdata, (u8*)(pdata->netdev->dev_addr));
+
+        /* Enable Magic packet */
+        if (pdata->expansion.wol & WAKE_MAGIC) {
+			hw_ops->enable_wake_magic_pattern(pdata);
+        }
+
+        /* Enable global unicast packet */
+        if (pdata->expansion.wol & WAKE_UCAST
+            || pdata->expansion.wol & WAKE_MCAST
+            || pdata->expansion.wol & WAKE_BCAST
+            || pdata->expansion.wol & WAKE_ARP) {
+            hw_ops->enable_wake_pattern(pdata);
+        }
+
+        /* Enable ephy link change */
+        if ((FXGMAC_WOL_UPON_EPHY_LINK) && (pdata->expansion.wol & WAKE_PHY)) {
+			hw_ops->enable_wake_link_change(pdata);
+        }
+    }
+    device_set_wakeup_enable(/*pci_dev_to_dev*/(pdata->dev), en);
+
+    DPRINTK("config_wol callout\n");
 }
 
 static int fxgmac_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 {
     struct fxgmac_pdata *pdata = netdev_priv(netdev);
-    struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
 
     //currently, we do not support these options
 #if FXGMAC_WOL_UPON_EPHY_LINK
@@ -740,16 +888,15 @@ static int fxgmac_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol
     if (wol->wolopts & (WAKE_PHY | WAKE_MAGICSECURE)) {
 #endif
 #endif
-    	DPRINTK("fxmac, set_wol, not supported wol options, 0x%x\n", wol->wolopts); 
+    	DPRINTK("fxmac, set_wol, not supported wol options, 0x%x\n", wol->wolopts);
     	return -EOPNOTSUPP;
     }
 
     if (!(pdata->hw_feat.rwk)) {
-    	DPRINTK("fxmac, set_wol, hw wol feature is n/a\n"); 
+    	DPRINTK("fxmac, set_wol, hw wol feature is n/a\n");
     	return (wol->wolopts ? -EOPNOTSUPP : 0);
     }
 
-#if 1 /* normally, pls set this to 1.  */
     pdata->expansion.wol = 0;
     if (wol->wolopts & WAKE_UCAST)
             pdata->expansion.wol |= WAKE_UCAST;
@@ -769,35 +916,10 @@ static int fxgmac_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol
     if (wol->wolopts & WAKE_ARP)
             pdata->expansion.wol |= WAKE_ARP;
 
-    hw_ops->set_pattern_data(pdata);
+	fxgmac_set_pattern_data(pdata);
 
-    hw_ops->config_wol(pdata, (!!(pdata->expansion.wol)));
-#else
-
-    /* for test only... */
-    if (wol->wolopts & WAKE_UCAST) {
-    	DPRINTK("fxmac, set_wol, ucast\n"); 
-    	//fxgmac_net_powerdown(pdata, pdata->wol);
-    	//fxgmac_update_aoe_ipv4addr(pdata, (u8 *)NULL);
-    	//fxgmac_get_netdev_ip6addr(pdata, NULL, NULL);
-    	fxgmac_update_ns_offload_ipv6addr(pdata, FXGMAC_NS_IFA_LOCAL_LINK);
-    }
-
-    if (wol->wolopts & WAKE_MAGIC) {
-    	DPRINTK("fxmac, set_wol, magic\n");
-    	//fxgmac_net_powerup(pdata);
-    	//fxgmac_update_aoe_ipv4addr(pdata, (u8 *)"192.168.3.33");
-    	fxgmac_update_ns_offload_ipv6addr(pdata, FXGMAC_NS_IFA_GLOBAL_UNICAST);
-    }
-    /*
-    if (wol->wolopts & WAKE_BCAST) {
-    	extern int fxgmac_disable_pci_msi_config(struct pci_dev *pdev);
-    	DPRINTK("fxmac, set_wol, broadcast\n");
-    	fxgmac_disable_pci_msi_config(struct pci_dev *pdev);
-    }
-    */	
-#endif
-    DPRINTK("fxmac, set_wol, opt=0x%x, 0x%x\n", wol->wolopts, pdata->expansion.wol); 
+	fxgmac_config_wol(pdata, (!!(pdata->expansion.wol)));
+    DPRINTK("fxmac, set_wol, opt=0x%x, 0x%x\n", wol->wolopts, pdata->expansion.wol);
 
     return 0;
 }
@@ -822,11 +944,9 @@ static void fxgmac_get_regs(struct net_device *netdev, struct ethtool_regs *regs
     	hw_ops->read_ephy_reg(pdata, i, (unsigned int *)&regs_buff[i]);
     }
     regs->version = regs_buff[REG_MII_PHYSID1] << 16 | regs_buff[REG_MII_PHYSID2];
-
-    //fxgmac_ephy_soft_reset(pdata);
 }
 
-#if FXGMAC_PAUSE_FEATURE_ENABLED
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0))
 static int fxgmac_get_link_ksettings(struct net_device *netdev,
 				    struct ethtool_link_ksettings *cmd)
 {
@@ -834,9 +954,10 @@ static int fxgmac_get_link_ksettings(struct net_device *netdev,
     struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
     u32 duplex, regval, link_status;
     u32 adv = 0xFFFFFFFF;
+    int ret;
 
-    regval = fxgmac_ephy_autoneg_ability_get(pdata, &adv);
-    if (regval)
+    ret = fxgmac_ephy_autoneg_ability_get(pdata, &adv);
+    if (ret < 0)
         return -ETIMEDOUT;
 
     ethtool_link_ksettings_zero_link_mode(cmd, supported);
@@ -852,14 +973,23 @@ static int fxgmac_get_link_ksettings(struct net_device *netdev,
     /* Indicate pause support */
     ethtool_link_ksettings_add_link_mode(cmd, supported, Pause);
     ethtool_link_ksettings_add_link_mode(cmd, supported, Asym_Pause);
-    ethtool_link_ksettings_add_link_mode(cmd, advertising, Pause);
-    ethtool_link_ksettings_add_link_mode(cmd, advertising, Asym_Pause);
+    ret = hw_ops->read_ephy_reg(pdata, REG_MII_ADVERTISE, &regval);
+    if (ret < 0)
+        return ret;
+
+    if (FXGMAC_GET_REG_BITS(regval, PHY_MII_ADVERTISE_PAUSE_POS, PHY_MII_ADVERTISE_PAUSE_LEN))
+        ethtool_link_ksettings_add_link_mode(cmd, advertising, Pause);
+    if (FXGMAC_GET_REG_BITS(regval, PHY_MII_ADVERTISE_ASYPAUSE_POS, PHY_MII_ADVERTISE_ASYPAUSE_LEN))
+        ethtool_link_ksettings_add_link_mode(cmd, advertising, Asym_Pause);
 
     ethtool_link_ksettings_add_link_mode(cmd, supported, MII);
     cmd->base.port = PORT_MII;
 
     ethtool_link_ksettings_add_link_mode(cmd, supported, Autoneg);
-    hw_ops->read_ephy_reg(pdata, REG_MII_BMCR, &regval);
+    ret = hw_ops->read_ephy_reg(pdata, REG_MII_BMCR, &regval);
+    if (ret < 0)
+        return ret;
+
     regval = FXGMAC_GET_REG_BITS(regval, PHY_CR_AUTOENG_POS, PHY_CR_AUTOENG_LEN);
     if (regval) {
         if (pdata->phy_autoeng)
@@ -905,8 +1035,12 @@ static int fxgmac_get_link_ksettings(struct net_device *netdev,
     }
     cmd->base.autoneg = pdata->phy_autoeng ? regval : 0;
 
-    hw_ops->read_ephy_reg(pdata, REG_MII_SPEC_STATUS, &regval);
-    link_status = regval & (BIT(FUXI_EPHY_LINK_STATUS_BIT));
+    regval = 0;
+    ret = hw_ops->read_ephy_reg(pdata, REG_MII_SPEC_STATUS, &regval);
+    if (ret < 0)
+	return ret;
+    
+    link_status = regval & (BIT(FXGMAC_EPHY_LINK_STATUS_BIT));
     if (link_status) {
         duplex = FXGMAC_GET_REG_BITS(regval, PHY_MII_SPEC_DUPLEX_POS, PHY_MII_SPEC_DUPLEX_LEN);
         cmd->base.duplex = duplex;
@@ -940,64 +1074,62 @@ static int fxgmac_set_link_ksettings(struct net_device *netdev,
     if (pdata->phy_autoeng || (!pdata->phy_autoeng && cmd->base.speed == SPEED_1000)){
         ret = hw_ops->read_ephy_reg(pdata, REG_MII_ADVERTISE, &adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
         adv &= ~REG_BIT_ADVERTISE_100_10_CAP;
         adv |= ethtool_adv_to_mii_adv_t(advertising);
         ret = hw_ops->write_ephy_reg(pdata, REG_MII_ADVERTISE, adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
         ret = hw_ops->read_ephy_reg(pdata, REG_MII_CTRL1000, &adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
         adv &= ~REG_BIT_ADVERTISE_1000_CAP;
         adv |= ethtool_adv_to_mii_ctrl1000_t(advertising);
         ret = hw_ops->write_ephy_reg(pdata, REG_MII_CTRL1000, adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
 
         ret = hw_ops->read_ephy_reg(pdata, REG_MII_BMCR, &adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
         adv = FXGMAC_SET_REG_BITS(adv, PHY_CR_AUTOENG_POS, PHY_CR_AUTOENG_LEN, 1);
         ret = hw_ops->write_ephy_reg(pdata, REG_MII_BMCR, adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
 
         ret = hw_ops->read_ephy_reg(pdata, REG_MII_BMCR, &adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
         adv = FXGMAC_SET_REG_BITS(adv, PHY_CR_RE_AUTOENG_POS, PHY_CR_RE_AUTOENG_LEN, 1);
         ret = hw_ops->write_ephy_reg(pdata, REG_MII_BMCR, adv);
         if (ret < 0)
-            return -ETIMEDOUT;
+            return ret;
     } else {
         pdata->phy_duplex = cmd->base.duplex;
         pdata->phy_speed = cmd->base.speed;
-        fxgmac_phy_force_speed(pdata, pdata->phy_speed);
-        fxgmac_phy_force_duplex(pdata, pdata->phy_duplex);
-        fxgmac_phy_force_autoneg(pdata, pdata->phy_autoeng);
-        //hw_ops->config_mac_speed(pdata);
+        fxgmac_phy_force_mode(pdata);
     }
 
-    ret = fxgmac_ephy_soft_reset(pdata);
-    if (ret) {
-        printk("%s: ephy soft reset timeout.\n", __func__);
-        return -ETIMEDOUT;
-    }
+    /* Save speed is used to restore it when resuming */
+    pdata->expansion.pre_phy_speed = cmd->base.speed;
+    pdata->expansion.pre_phy_autoneg = cmd->base.autoneg;
+    pdata->expansion.pre_phy_duplex = cmd->base.duplex;
 
     return 0;
 }
+#endif
 
+#if FXGMAC_PAUSE_FEATURE_ENABLED
 static void fxgmac_get_pauseparam(struct net_device *netdev,
 				 struct ethtool_pauseparam *pause)
 {
     struct fxgmac_pdata *pdata = netdev_priv(netdev);
 
-    pause->autoneg = 1;
+    pause->autoneg = pdata->phy_autoeng;
     pause->rx_pause = pdata->rx_pause;
     pause->tx_pause = pdata->tx_pause;
 
-    DPRINTK("fxmac get_pauseparam done, rx=%d, tx=%d\n", pdata->rx_pause, pdata->tx_pause); 
+    DPRINTK("fxmac get_pauseparam done, rx=%d, tx=%d\n", pdata->rx_pause, pdata->tx_pause);
 }
 
 static int fxgmac_set_pauseparam(struct net_device *netdev,
@@ -1007,12 +1139,15 @@ static int fxgmac_set_pauseparam(struct net_device *netdev,
     struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
     unsigned int pre_rx_pause = pdata->rx_pause;
     unsigned int pre_tx_pause = pdata->tx_pause;
-
-    //if (pause->autoneg == AUTONEG_ENABLE)
-    //DPRINTK("fxgmac set pause parameter, autoneg=%d\n", pause->autoneg);
+    u32 adv;
+    int ret;
+    int enable_pause = 0;
 
     pdata->rx_pause = pause->rx_pause;
     pdata->tx_pause = pause->tx_pause;
+
+    if (pdata->rx_pause || pdata->tx_pause)
+        enable_pause = 1;
 
     if(pre_rx_pause != pdata->rx_pause) {
     	hw_ops->config_rx_flow_control(pdata);
@@ -1023,37 +1158,37 @@ static int fxgmac_set_pauseparam(struct net_device *netdev,
     	DPRINTK("fxgmac set pause parameter, tx from %d to %d\n", pre_tx_pause, pdata->tx_pause);
     }
 
-    /*		
-    if (netif_running(netdev))
-    	fxgmac_restart_dev(pdata);
-    */
+    if (pause->autoneg) {
+        ret = hw_ops->read_ephy_reg(pdata, REG_MII_ADVERTISE, &adv);
+        if (ret < 0)
+            return ret;
+        adv = FXGMAC_SET_REG_BITS(adv, PHY_MII_ADVERTISE_PAUSE_POS,
+                                        PHY_MII_ADVERTISE_PAUSE_LEN,
+                                        enable_pause);
+        adv = FXGMAC_SET_REG_BITS(adv, PHY_MII_ADVERTISE_ASYPAUSE_POS,
+                                        PHY_MII_ADVERTISE_ASYPAUSE_LEN,
+                                        enable_pause);
+        ret = hw_ops->write_ephy_reg(pdata, REG_MII_ADVERTISE, adv);
+        if (ret < 0) {
+            return ret;
+        }
+
+        ret = hw_ops->read_ephy_reg(pdata, REG_MII_BMCR, &adv);
+        if (ret < 0)
+            return ret;
+        adv = FXGMAC_SET_REG_BITS(adv, PHY_CR_RE_AUTOENG_POS, PHY_CR_RE_AUTOENG_LEN, 1);
+        ret = hw_ops->write_ephy_reg(pdata, REG_MII_BMCR, adv);
+        if (ret < 0)
+            return ret;
+    }else {
+        DPRINTK("Can't set phy pause because autoneg is off.\n");
+    }
+
     DPRINTK("fxgmac set pause parameter, autoneg=%d, rx=%d, tx=%d\n", pause->autoneg, pause->rx_pause, pause->tx_pause);
 
     return 0;
 }
 #endif /*FXGMAC_PAUSE_FEATURE_ENABLED*/
-
-
-/* yzhang added for debug sake. descriptors status checking
- * 2021.03.29
- */
-#define FXGMAC_ETH_GSTRING_LEN 32 
-
-#if 0
-static char fxgmac_gstrings_test[1024*7][FXGMAC_ETH_GSTRING_LEN]= {
-};
-
-static char fxgmac_gstrings_header[7][10]= {
-    "Channel:", "curDesc:",
-    "baseMem:", "desc0  :",
-    "desc1  :", "desc2  :",
-    "desc3  :"
-};
-#endif
-
-#define FXGMAC_TEST_LEN	(sizeof(fxgmac_gstrings_test) / FXGMAC_ETH_GSTRING_LEN)
-#define DBG_ETHTOOL_CHECK_NUM_OF_DESC 5
-//static u16 fxgmac_ethtool_test_len = DBG_ETHTOOL_CHECK_NUM_OF_DESC; //default value, yzhang
 
 static void fxgmac_ethtool_get_strings(struct net_device *netdev,
 				       u32 stringset, u8 *data)
@@ -1100,11 +1235,9 @@ static void fxgmac_ethtool_get_ethtool_stats(struct net_device *netdev,
     int i;
 
 #if FXGMAC_PM_FEATURE_ENABLED
-    /* 20210709 for net power down */
     if(!test_bit(FXGMAC_POWER_STATE_DOWN, &pdata->expansion.powerstate))
 #endif
     {
-    	//DPRINTK("fxgmac_ethtool_get_ethtool_stats, here\n");
     	pdata->hw_ops.read_mmc_stats(pdata);
     }
 
@@ -1118,7 +1251,54 @@ static inline bool fxgmac_removed(void __iomem *addr)
 {
     return unlikely(!addr);
 }
-#define FXGMAC_REMOVED(a) fxgmac_removed(a)
+
+static int fxgmac_ethtool_reset(struct net_device *netdev, u32 *flag)
+{
+    struct fxgmac_pdata *pdata = netdev_priv(netdev);
+    struct fxgmac_hw_ops *hw_ops = &pdata->hw_ops;
+    u32 val;
+    int ret = 0;
+
+    val = (*flag & ETH_RESET_ALL) || (*flag & ETH_RESET_PHY);
+    if (!val) {
+        DPRINTK("Operation not support.\n");
+        return -EINVAL;
+    }
+
+    switch(*flag) {
+        case ETH_RESET_ALL:
+            fxgmac_restart_dev(pdata);
+            *flag = 0;
+            break;
+        case ETH_RESET_PHY:
+            /*
+             * power off and on the phy in order to properly
+             * configure the MAC timing
+             */
+            hw_ops->read_ephy_reg(pdata, REG_MII_BMCR, &val);
+            val = FXGMAC_SET_REG_BITS(val, PHY_CR_POWER_POS,
+                                                PHY_CR_POWER_LEN,
+                                                    PHY_POWER_DOWN);
+            ret = hw_ops->write_ephy_reg(pdata, REG_MII_BMCR, val);
+            if(ret < 0)
+                return ret;
+
+            usleep_range_ex(pdata->pAdapter, 9000, 10000);
+            val = FXGMAC_SET_REG_BITS(val, PHY_CR_POWER_POS,
+                                                PHY_CR_POWER_LEN,
+                                                    PHY_POWER_UP);
+            ret = hw_ops->write_ephy_reg(pdata, REG_MII_BMCR, val);
+            if(ret < 0)
+                return ret;
+
+            *flag = 0;
+            break;
+        default:
+            break;
+    }
+
+    return 0;
+}
 
 static const struct ethtool_ops fxgmac_ethtool_ops = {
     .get_drvinfo = fxgmac_ethtool_get_drvinfo,
@@ -1128,13 +1308,14 @@ static const struct ethtool_ops fxgmac_ethtool_ops = {
     .get_channels = fxgmac_ethtool_get_channels,
     .get_coalesce = fxgmac_ethtool_get_coalesce,
     .set_coalesce = fxgmac_ethtool_set_coalesce,
+    .reset        = fxgmac_ethtool_reset,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0))
     /*
-    * The process of set is to get first and then set, 
+    * The process of set is to get first and then set,
     * and the result of get is preserved for values that have not been modified.
     *
-    * Therefore, when using, it is necessary to ensure that this macro and the 
-    * assignment operation in the get_coalesce are one-to-one correspondence, 
+    * Therefore, when using, it is necessary to ensure that this macro and the
+    * assignment operation in the get_coalesce are one-to-one correspondence,
     * otherwise the macro and parameters will be verified when set, and the error
     * of "Operation not supported " will be reported if the verification fails
     */
@@ -1153,7 +1334,9 @@ static const struct ethtool_ops fxgmac_ethtool_ops = {
     .get_rxnfc		= fxgmac_get_rxnfc,
     .set_rxnfc		= fxgmac_set_rxnfc,
     .get_rxfh_indir_size	= fxgmac_rss_indir_size,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0))
     .get_rxfh_key_size	= fxgmac_get_rxfh_key_size,
+#endif
     .get_rxfh		= fxgmac_get_rxfh,
     .set_rxfh		= fxgmac_set_rxfh,
 #endif
@@ -1162,10 +1345,10 @@ static const struct ethtool_ops fxgmac_ethtool_ops = {
     .set_wol		= fxgmac_set_wol,
 #endif
 #if (FXGMAC_PAUSE_FEATURE_ENABLED)
-#ifdef ETHTOOL_GLINKSETTINGS
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0))
     .get_link_ksettings = fxgmac_get_link_ksettings,
     .set_link_ksettings = fxgmac_set_link_ksettings,
-#endif /* ETHTOOL_GLINKSETTINGS */
+#endif
     .get_pauseparam = fxgmac_get_pauseparam,
     .set_pauseparam = fxgmac_set_pauseparam,
 #endif
