@@ -18,9 +18,9 @@ PWD :=$(shell pwd)
 EXTRA_CFLAGS = -Wall -g -I$(CURDIR) -I$(subst fuxi-linux-release-package/module_fuxi/src,common,$(PWD)) -I$(PWD)
 EXTRA_CFLAGS += -DFXGMAC_DEBUG
 
-KSRC_BASE = /lib/modules/$(shell uname -r)
+KSRC_BASE = /lib/modules/$(KERNELRELEASE)
 KSRC =  $(KSRC_BASE)/build
-#KDST = /lib/modules/$(shell uname -r)/kernel/drivers/net/ethernet/motorcomm/
+#KDST = /lib/modules/$(KERNELRELEASE)/kernel/drivers/net/ethernet/motorcomm/
 KDST = kernel/drivers/net/ethernet/motorcomm
 ko_dir = $(KSRC_BASE)/$(KDST)/
 KFILE = yt6801
@@ -36,7 +36,7 @@ install:
 	@echo "KDST: " $(KDST)
 	make -C $(KSRC) M=$(PWD) INSTALL_MOD_DIR=$(KDST) modules_install
 	sudo ls -l $(ko_dir)
-	depmod $(shell uname -r)
+	depmod $(KERNELRELEASE)
 	modprobe $(KFILE)
 	@file $(ko_full)
 	@echo install done.
